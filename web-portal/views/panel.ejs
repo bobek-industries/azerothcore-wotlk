@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= user.username %> - Character Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="aurora"></div>
+    <main class="shell reveal">
+      <section class="hero card">
+        <p class="kicker">User Panel</p>
+        <h1><%= user.username %></h1>
+        <p class="subtitle">Your characters on this realm.</p>
+
+        <div class="actions">
+          <a class="btn btn-ghost" href="/">Back To Dashboard</a>
+          <form method="post" action="/logout">
+            <button class="btn btn-primary" type="submit">Log Out</button>
+          </form>
+        </div>
+
+        <div class="characters">
+          <% if (characters.length === 0) { %>
+          <div class="empty">No characters yet. Create one in game and refresh this page.</div>
+          <% } %>
+
+          <% characters.forEach((character) => { %>
+          <article class="character-card">
+            <header>
+              <h3><%= character.name %></h3>
+              <span class="pill <%= character.online ? 'up' : 'down' %>">
+                <%= character.online ? 'Online' : 'Offline' %>
+              </span>
+            </header>
+            <p>Level <strong><%= character.level %></strong> <%= character.race %> <%= character.class %></p>
+            <small>GUID: <%= character.guid %></small>
+          </article>
+          <% }) %>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

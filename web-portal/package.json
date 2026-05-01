@@ -1,0 +1,16 @@
+{
+  "name": "ac-web-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AzerothCore account portal",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "mysql2": "^3.14.1"
+  }
+}
