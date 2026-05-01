@@ -732,11 +732,19 @@ app.get("/admin", requireAdmin, async (req, res) => {
      LIMIT 50`
   );
 
+  const [auditRows] = await authPool.query(
+    `SELECT id, ts, actor_user, action, target_user, details
+     FROM portal_audit_log
+     ORDER BY ts DESC
+     LIMIT 50`
+  );
+
   return res.render("admin", {
     user: req.session.user,
     flash: consumeFlash(req),
     searchQuery: rawQuery,
     lookedUpAccounts,
+    auditLogs: auditRows,
     onlinePlayers: onlinePlayers.map((player) => ({
       guid: player.guid,
       name: player.name,
@@ -778,6 +786,15 @@ app.post("/admin/set-gm-level", requireAdmin, async (req, res) => {
     [account.id, gmlevel, realmId, `Set via portal by ${req.session.user.username}`]
   );
 
+  await writeAudit(
+    req.session.user.accountId,
+    req.session.user.username,
+    "set-gm-level",
+    account.id,
+    account.username,
+    `gmlevel=${gmlevel} realmId=${realmId}`
+  );
+
   req.session.flash = {
     type: "success",
     message: `GM level for ${account.username} set to ${gmlevel} (realm ${realmId}).`
@@ -809,6 +826,15 @@ app.post("/admin/ban", requireAdmin, async (req, res) => {
     [account.id, now, unbanAt, req.session.user.username, reason]
   );
 
+  await writeAudit(
+    req.session.user.accountId,
+    req.session.user.username,
+    "ban",
+    account.id,
+    account.username,
+    `minutes=${minutes} reason=${reason}`
+  );
+
   req.session.flash = {
     type: "success",
     message: `${account.username} banned for ${minutes} minutes.`
@@ -826,6 +852,15 @@ app.post("/admin/unban", requireAdmin, async (req, res) => {
   await authPool.query(
     "UPDATE account_banned SET active = 0 WHERE id = ? AND active = 1",
     [account.id]
+  );
+
+  await writeAudit(
+    req.session.user.accountId,
+    req.session.user.username,
+    "unban",
+    account.id,
+    account.username,
+    null
   );
 
   req.session.flash = {
@@ -849,12 +884,51 @@ app.post("/admin/toggle-lock", requireAdmin, async (req, res) => {
     [lockState, account.id]
   );
 
+  await writeAudit(
+    req.session.user.accountId,
+    req.session.user.username,
+    lockState ? "lock" : "unlock",
+    account.id,
+    account.username,
+    null
+  );
+
   req.session.flash = {
     type: "success",
     message: `${account.username} is now ${lockState ? "locked" : "unlocked"}.`
   };
   return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
 });
+
+async function createAuditTable() {
+  await authPool.query(`
+    CREATE TABLE IF NOT EXISTS portal_audit_log (
+      id         INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      ts         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      actor_id   INT UNSIGNED    NOT NULL,
+      actor_user VARCHAR(32)     NOT NULL,
+      action     VARCHAR(64)     NOT NULL,
+      target_id  INT UNSIGNED    DEFAULT NULL,
+      target_user VARCHAR(32)    DEFAULT NULL,
+      details    TEXT            DEFAULT NULL,
+      PRIMARY KEY (id),
+      KEY idx_ts (ts),
+      KEY idx_actor (actor_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+
+async function writeAudit(actorId, actorUser, action, targetId, targetUser, details) {
+  try {
+    await authPool.query(
+      `INSERT INTO portal_audit_log (actor_id, actor_user, action, target_id, target_user, details)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [actorId, actorUser, action, targetId || null, targetUser || null, details || null]
+    );
+  } catch (error) {
+    console.error("Audit log write failed:", error.message);
+  }
+}
 
 async function start() {
   authPool = mysql.createPool({
@@ -880,6 +954,8 @@ async function start() {
     connectionLimit: 6,
     namedPlaceholders: false
   });
+
+  await createAuditTable();
 
   app.listen(port, () => {
     console.log(`AzerothCore web portal running on port ${port}`);
