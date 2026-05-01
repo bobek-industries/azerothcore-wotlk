@@ -137,6 +137,12 @@ h1 {
   border: 1px solid rgba(31, 44, 52, 0.3);
 }
 
+.btn-danger {
+  background: linear-gradient(130deg, #b84a3b, #d37151);
+  color: #fff;
+  box-shadow: 0 8px 16px rgba(184, 74, 59, 0.32);
+}
+
 .forms {
   margin-top: 1.2rem;
 }
@@ -144,6 +150,20 @@ h1 {
 .panel {
   display: grid;
   gap: 0.8rem;
+}
+
+.link-row {
+  margin-top: 0.8rem;
+}
+
+.text-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #6f4a35;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .hidden {
@@ -200,6 +220,10 @@ input {
   margin-bottom: 0.35rem;
 }
 
+.card-actions {
+  margin-top: 0.75rem;
+}
+
 .pill {
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
@@ -222,6 +246,82 @@ input {
   border-radius: 12px;
   background: rgba(60, 49, 41, 0.1);
   border: 1px dashed rgba(60, 49, 41, 0.32);
+}
+
+.admin-block {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(70, 46, 27, 0.2);
+}
+
+.inline-form {
+  display: flex;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.inline-form input {
+  flex: 1;
+  min-width: 230px;
+}
+
+.admin-card {
+  border: 1px solid rgba(66, 45, 27, 0.25);
+  border-radius: 14px;
+  padding: 0.9rem;
+  background: rgba(255, 255, 255, 0.6);
+  margin-bottom: 0.8rem;
+}
+
+.admin-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.admin-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+
+.admin-action {
+  display: grid;
+  gap: 0.55rem;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(70, 46, 27, 0.2);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.admin-action p {
+  margin: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.6rem 0.65rem;
+  border-bottom: 1px solid rgba(70, 46, 27, 0.16);
+}
+
+th {
+  font-family: "Cinzel", serif;
 }
 
 .reveal {

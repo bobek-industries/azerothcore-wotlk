@@ -22,10 +22,17 @@
 
         <div class="actions">
           <a class="btn btn-ghost" href="/">Back To Dashboard</a>
+          <% if (user.gmlevel >= 3) { %>
+          <a class="btn btn-ghost" href="/admin">Admin Panel</a>
+          <% } %>
           <form method="post" action="/logout">
             <button class="btn btn-primary" type="submit">Log Out</button>
           </form>
         </div>
+
+        <% if (flash) { %>
+        <div class="flash <%= flash.type %>"><%= flash.message %></div>
+        <% } %>
 
         <div class="characters">
           <% if (characters.length === 0) { %>
@@ -42,6 +49,9 @@
             </header>
             <p>Level <strong><%= character.level %></strong> <%= character.race %> <%= character.class %></p>
             <small>GUID: <%= character.guid %></small>
+            <div class="card-actions">
+              <a class="btn btn-ghost" href="/characters/<%= character.guid %>">Details</a>
+            </div>
           </article>
           <% }) %>
         </div>

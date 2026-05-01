@@ -39,6 +39,9 @@
         <% if (user) { %>
         <div class="actions">
           <a href="/panel" class="btn btn-primary">Open User Panel</a>
+          <% if (user.gmlevel >= 3) { %>
+          <a href="/admin" class="btn btn-ghost">Open Admin Panel</a>
+          <% } %>
           <form method="post" action="/logout">
             <button class="btn btn-ghost" type="submit">Log Out</button>
           </form>
@@ -79,7 +82,26 @@
             </label>
             <button type="submit" class="btn btn-primary">Login</button>
           </form>
+
+          <form id="reset" class="panel hidden" method="post" action="/reset-password">
+            <h2>Password Reset</h2>
+            <label>
+              Username
+              <input name="username" maxlength="16" required />
+            </label>
+            <label>
+              New Password
+              <input name="password" type="password" maxlength="16" required />
+            </label>
+            <button type="submit" class="btn btn-primary">Reset Password</button>
+          </form>
         </section>
+
+        <div class="link-row">
+          <button class="text-link" type="button" data-target="reset">
+            Forgot password? Quick reset
+          </button>
+        </div>
         <% } %>
       </section>
     </main>

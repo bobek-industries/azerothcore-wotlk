@@ -17,6 +17,7 @@ const dbConfig = {
 
 const authDbName = process.env.AUTH_DB_NAME || "acore_auth";
 const charactersDbName = process.env.CHARS_DB_NAME || "acore_characters";
+const worldDbName = process.env.WORLD_DB_NAME || "acore_world";
 
 const N = BigInt(
   "0x894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7"
@@ -69,6 +70,7 @@ app.use(
 
 let authPool;
 let charsPool;
+let worldPool;
 
 function upperLatin(value) {
   return (value || "").trim().toUpperCase();
@@ -144,6 +146,47 @@ function credentialsValidation(username, password) {
   return null;
 }
 
+function parseAccountInput(rawInput) {
+  const value = (rawInput || "").trim();
+
+  if (!value)
+    return null;
+
+  if (/^\d+$/.test(value))
+    return { by: "id", value: Number(value) };
+
+  return { by: "username", value: upperLatin(value) };
+}
+
+function consumeFlash(req) {
+  const flash = req.session.flash || null;
+  req.session.flash = null;
+  return flash;
+}
+
+function formatMoney(copper) {
+  const value = Number(copper || 0);
+  const gold = Math.floor(value / 10000);
+  const silver = Math.floor((value % 10000) / 100);
+  const bronze = value % 100;
+  return `${gold}g ${silver}s ${bronze}c`;
+}
+
+function formatSeconds(totalSeconds) {
+  const value = Number(totalSeconds || 0);
+  const days = Math.floor(value / 86400);
+  const hours = Math.floor((value % 86400) / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+
+  if (days > 0)
+    return `${days}d ${hours}h ${minutes}m`;
+
+  if (hours > 0)
+    return `${hours}h ${minutes}m`;
+
+  return `${minutes}m`;
+}
+
 function statusFromError(error) {
   return {
     online: false,
@@ -213,16 +256,246 @@ async function loadCharactersByAccount(accountId) {
   }));
 }
 
+async function getAccountGmLevel(accountId) {
+  const [rows] = await authPool.query(
+    `SELECT COALESCE(MAX(gmlevel), 0) AS gmlevel
+     FROM account_access
+     WHERE id = ?`,
+    [accountId]
+  );
+
+  return Number(rows[0]?.gmlevel || 0);
+}
+
+async function findAccountByInput(accountInput) {
+  if (!accountInput)
+    return null;
+
+  if (accountInput.by === "id") {
+    const [rows] = await authPool.query(
+      "SELECT id, username, locked FROM account WHERE id = ? LIMIT 1",
+      [accountInput.value]
+    );
+    return rows[0] || null;
+  }
+
+  const [rows] = await authPool.query(
+    "SELECT id, username, locked FROM account WHERE username = ? LIMIT 1",
+    [accountInput.value]
+  );
+  return rows[0] || null;
+}
+
+async function requireLogin(req, res, next) {
+  if (!req.session.user)
+    return res.redirect("/");
+
+  if (typeof req.session.user.gmlevel !== "number") {
+    try {
+      req.session.user.gmlevel = await getAccountGmLevel(req.session.user.accountId);
+    } catch (error) {
+      req.session.flash = {
+        type: "error",
+        message: `Session refresh failed: ${error.code || "db_error"}`
+      };
+      return res.redirect("/");
+    }
+  }
+
+  return next();
+}
+
+async function requireAdmin(req, res, next) {
+  if (!req.session.user)
+    return res.redirect("/");
+
+  try {
+    const gmlevel = await getAccountGmLevel(req.session.user.accountId);
+    req.session.user.gmlevel = gmlevel;
+
+    if (gmlevel < 3) {
+      req.session.flash = {
+        type: "error",
+        message: "Admin panel is available only for administrator accounts."
+      };
+      return res.redirect("/panel");
+    }
+
+    return next();
+  } catch (error) {
+    req.session.flash = {
+      type: "error",
+      message: `Admin authorization failed: ${error.code || "db_error"}`
+    };
+    return res.redirect("/panel");
+  }
+}
+
+async function loadCharacterDetail(guid) {
+  const [rows] = await charsPool.query(
+    `SELECT
+       guid,
+       account,
+       name,
+       race,
+       class,
+       level,
+       gender,
+       online,
+       money,
+       totaltime,
+       map,
+       zone,
+       position_x,
+       position_y,
+       position_z,
+       creation_date
+     FROM characters
+     WHERE guid = ? AND deleteDate IS NULL
+     LIMIT 1`,
+    [guid]
+  );
+
+  if (rows.length === 0)
+    return null;
+
+  const character = rows[0];
+  let mapName = `Map ${character.map}`;
+
+  try {
+    const [mapRows] = await worldPool.query(
+      `SELECT MapName_Lang_enUS AS mapName
+       FROM map_dbc
+       WHERE ID = ?
+       LIMIT 1`,
+      [character.map]
+    );
+
+    if (mapRows.length > 0 && mapRows[0].mapName)
+      mapName = mapRows[0].mapName;
+  } catch (_error) {
+    mapName = `Map ${character.map}`;
+  }
+
+  const [summaryRows] = await charsPool.query(
+    `SELECT
+       COUNT(*) AS inventorySlotsUsed,
+       SUM(CASE WHEN ci.bag = 0 AND ci.slot BETWEEN 0 AND 18 THEN 1 ELSE 0 END) AS equippedSlots,
+       COUNT(DISTINCT ii.itemEntry) AS uniqueItemEntries,
+       COALESCE(SUM(ii.count), 0) AS totalItemCount
+     FROM character_inventory ci
+     JOIN item_instance ii ON ii.guid = ci.item
+     WHERE ci.guid = ?`,
+    [guid]
+  );
+
+  const [itemsRows] = await charsPool.query(
+    `SELECT
+       ii.itemEntry,
+       COALESCE(it.name, CONCAT('Item ', ii.itemEntry)) AS itemName,
+       SUM(ii.count) AS totalCount
+     FROM character_inventory ci
+     JOIN item_instance ii ON ii.guid = ci.item
+     LEFT JOIN ${worldDbName}.item_template it ON it.entry = ii.itemEntry
+     WHERE ci.guid = ?
+     GROUP BY ii.itemEntry, itemName
+     ORDER BY totalCount DESC, ii.itemEntry ASC
+     LIMIT 20`,
+    [guid]
+  );
+
+  return {
+    guid: character.guid,
+    accountId: character.account,
+    name: character.name,
+    level: character.level,
+    race: raceById[character.race] || `Race ${character.race}`,
+    class: classById[character.class] || `Class ${character.class}`,
+    gender: Number(character.gender) === 0 ? "Male" : "Female",
+    online: character.online === 1,
+    money: formatMoney(character.money),
+    played: formatSeconds(character.totaltime),
+    mapId: character.map,
+    mapName,
+    zoneId: character.zone,
+    position: {
+      x: Number(character.position_x || 0).toFixed(2),
+      y: Number(character.position_y || 0).toFixed(2),
+      z: Number(character.position_z || 0).toFixed(2)
+    },
+    createdAt: character.creation_date,
+    inventorySummary: {
+      inventorySlotsUsed: Number(summaryRows[0]?.inventorySlotsUsed || 0),
+      equippedSlots: Number(summaryRows[0]?.equippedSlots || 0),
+      uniqueItemEntries: Number(summaryRows[0]?.uniqueItemEntries || 0),
+      totalItemCount: Number(summaryRows[0]?.totalItemCount || 0)
+    },
+    topItems: itemsRows.map((item) => ({
+      itemEntry: item.itemEntry,
+      name: item.itemName,
+      count: Number(item.totalCount || 0)
+    }))
+  };
+}
+
 app.get("/", async (req, res) => {
   const status = await getServerStatus();
-  const flash = req.session.flash || null;
-  req.session.flash = null;
+  const flash = consumeFlash(req);
 
   res.render("index", {
     status,
     flash,
     user: req.session.user || null
   });
+});
+
+app.post("/reset-password", async (req, res) => {
+  const { username, password } = normalizeCredentials(
+    req.body.username,
+    req.body.password
+  );
+
+  const validationError = credentialsValidation(username, password);
+  if (validationError) {
+    req.session.flash = { type: "error", message: validationError };
+    return res.redirect("/");
+  }
+
+  try {
+    const [rows] = await authPool.query(
+      "SELECT id, username FROM account WHERE username = ? LIMIT 1",
+      [username]
+    );
+
+    if (rows.length === 0) {
+      req.session.flash = {
+        type: "error",
+        message: "Account not found."
+      };
+      return res.redirect("/");
+    }
+
+    const account = rows[0];
+    const salt = crypto.randomBytes(32);
+    const verifier = calculateVerifier(account.username, password, salt);
+
+    await authPool.query(
+      "UPDATE account SET salt = ?, verifier = ? WHERE id = ?",
+      [salt, verifier, account.id]
+    );
+
+    req.session.flash = {
+      type: "success",
+      message: "Password has been reset. You can log in with the new password."
+    };
+  } catch (error) {
+    req.session.flash = {
+      type: "error",
+      message: `Password reset failed: ${error.code || "db_error"}`
+    };
+  }
+
+  return res.redirect("/");
 });
 
 app.post("/register", async (req, res) => {
@@ -312,7 +585,8 @@ app.post("/login", async (req, res) => {
 
     req.session.user = {
       accountId: account.id,
-      username: account.username
+      username: account.username,
+      gmlevel: await getAccountGmLevel(account.id)
     };
 
     return res.redirect("/panel");
@@ -336,10 +610,12 @@ app.get("/panel", async (req, res) => {
     return res.redirect("/");
 
   try {
+    req.session.user.gmlevel = await getAccountGmLevel(req.session.user.accountId);
     const characters = await loadCharactersByAccount(req.session.user.accountId);
     return res.render("panel", {
       user: req.session.user,
-      characters
+      characters,
+      flash: consumeFlash(req)
     });
   } catch (error) {
     req.session.flash = {
@@ -348,6 +624,236 @@ app.get("/panel", async (req, res) => {
     };
     return res.redirect("/");
   }
+});
+
+app.get("/characters/:guid", requireLogin, async (req, res) => {
+  const guid = Number(req.params.guid);
+  if (!Number.isInteger(guid) || guid <= 0) {
+    req.session.flash = { type: "error", message: "Invalid character id." };
+    return res.redirect("/panel");
+  }
+
+  try {
+    const character = await loadCharacterDetail(guid);
+    if (!character) {
+      req.session.flash = { type: "error", message: "Character not found." };
+      return res.redirect("/panel");
+    }
+
+    const isAdmin = req.session.user.gmlevel >= 3;
+    if (!isAdmin && character.accountId !== req.session.user.accountId) {
+      req.session.flash = {
+        type: "error",
+        message: "You do not have access to this character."
+      };
+      return res.redirect("/panel");
+    }
+
+    return res.render("character", {
+      user: req.session.user,
+      character,
+      flash: consumeFlash(req),
+      isAdmin
+    });
+  } catch (error) {
+    req.session.flash = {
+      type: "error",
+      message: `Character load failed: ${error.code || "db_error"}`
+    };
+    return res.redirect("/panel");
+  }
+});
+
+app.get("/admin", requireAdmin, async (req, res) => {
+  const rawQuery = (req.query.q || "").toString().trim();
+  const accountInput = parseAccountInput(rawQuery);
+
+  let lookedUpAccounts = [];
+  if (accountInput) {
+    if (accountInput.by === "id") {
+      const [rows] = await authPool.query(
+        `SELECT
+           a.id,
+           a.username,
+           a.locked,
+           a.online,
+           a.joindate,
+           a.last_login,
+           COALESCE(MAX(aa.gmlevel), 0) AS gmlevel,
+           MAX(CASE WHEN ab.active = 1 THEN 1 ELSE 0 END) AS activeBan
+         FROM account a
+         LEFT JOIN account_access aa ON aa.id = a.id
+         LEFT JOIN account_banned ab ON ab.id = a.id
+         WHERE a.id = ?
+         GROUP BY a.id, a.username, a.locked, a.online, a.joindate, a.last_login
+         LIMIT 25`,
+        [accountInput.value]
+      );
+      lookedUpAccounts = rows;
+    } else {
+      const [rows] = await authPool.query(
+        `SELECT
+           a.id,
+           a.username,
+           a.locked,
+           a.online,
+           a.joindate,
+           a.last_login,
+           COALESCE(MAX(aa.gmlevel), 0) AS gmlevel,
+           MAX(CASE WHEN ab.active = 1 THEN 1 ELSE 0 END) AS activeBan
+         FROM account a
+         LEFT JOIN account_access aa ON aa.id = a.id
+         LEFT JOIN account_banned ab ON ab.id = a.id
+         WHERE a.username LIKE ?
+         GROUP BY a.id, a.username, a.locked, a.online, a.joindate, a.last_login
+         ORDER BY a.id DESC
+         LIMIT 25`,
+        [`%${accountInput.value}%`]
+      );
+      lookedUpAccounts = rows;
+    }
+  }
+
+  const [onlinePlayers] = await charsPool.query(
+    `SELECT
+       c.guid,
+       c.name,
+       c.level,
+       c.race,
+       c.class,
+       c.account,
+       c.map,
+       c.zone,
+       a.username AS accountName
+     FROM characters c
+     JOIN ${authDbName}.account a ON a.id = c.account
+     WHERE c.online = 1
+     ORDER BY c.level DESC, c.name ASC
+     LIMIT 50`
+  );
+
+  return res.render("admin", {
+    user: req.session.user,
+    flash: consumeFlash(req),
+    searchQuery: rawQuery,
+    lookedUpAccounts,
+    onlinePlayers: onlinePlayers.map((player) => ({
+      guid: player.guid,
+      name: player.name,
+      level: player.level,
+      race: raceById[player.race] || `Race ${player.race}`,
+      class: classById[player.class] || `Class ${player.class}`,
+      account: player.account,
+      accountName: player.accountName,
+      map: player.map,
+      zone: player.zone
+    }))
+  });
+});
+
+app.post("/admin/set-gm-level", requireAdmin, async (req, res) => {
+  const account = await findAccountByInput(parseAccountInput(req.body.account));
+  const gmlevel = Number(req.body.gmlevel);
+  const realmId = Number(req.body.realmId ?? -1);
+
+  if (!account) {
+    req.session.flash = { type: "error", message: "Account not found." };
+    return res.redirect("/admin");
+  }
+
+  if (!Number.isInteger(gmlevel) || gmlevel < 0 || gmlevel > 3) {
+    req.session.flash = { type: "error", message: "GM level must be between 0 and 3." };
+    return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+  }
+
+  if (!Number.isInteger(realmId)) {
+    req.session.flash = { type: "error", message: "Realm id must be an integer." };
+    return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+  }
+
+  await authPool.query(
+    `INSERT INTO account_access (id, gmlevel, RealmID, comment)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE gmlevel = VALUES(gmlevel), comment = VALUES(comment)`,
+    [account.id, gmlevel, realmId, `Set via portal by ${req.session.user.username}`]
+  );
+
+  req.session.flash = {
+    type: "success",
+    message: `GM level for ${account.username} set to ${gmlevel} (realm ${realmId}).`
+  };
+  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+});
+
+app.post("/admin/ban", requireAdmin, async (req, res) => {
+  const account = await findAccountByInput(parseAccountInput(req.body.account));
+  const minutes = Number(req.body.minutes);
+  const reason = (req.body.reason || "Portal moderation").toString().trim() || "Portal moderation";
+
+  if (!account) {
+    req.session.flash = { type: "error", message: "Account not found." };
+    return res.redirect("/admin");
+  }
+
+  if (!Number.isInteger(minutes) || minutes < 1) {
+    req.session.flash = { type: "error", message: "Ban minutes must be 1 or higher." };
+    return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const unbanAt = now + (minutes * 60);
+
+  await authPool.query(
+    `INSERT INTO account_banned (id, bandate, unbandate, bannedby, banreason, active)
+     VALUES (?, ?, ?, ?, ?, 1)`,
+    [account.id, now, unbanAt, req.session.user.username, reason]
+  );
+
+  req.session.flash = {
+    type: "success",
+    message: `${account.username} banned for ${minutes} minutes.`
+  };
+  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+});
+
+app.post("/admin/unban", requireAdmin, async (req, res) => {
+  const account = await findAccountByInput(parseAccountInput(req.body.account));
+  if (!account) {
+    req.session.flash = { type: "error", message: "Account not found." };
+    return res.redirect("/admin");
+  }
+
+  await authPool.query(
+    "UPDATE account_banned SET active = 0 WHERE id = ? AND active = 1",
+    [account.id]
+  );
+
+  req.session.flash = {
+    type: "success",
+    message: `All active bans removed for ${account.username}.`
+  };
+  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+});
+
+app.post("/admin/toggle-lock", requireAdmin, async (req, res) => {
+  const account = await findAccountByInput(parseAccountInput(req.body.account));
+  const lockState = req.body.locked === "1" ? 1 : 0;
+
+  if (!account) {
+    req.session.flash = { type: "error", message: "Account not found." };
+    return res.redirect("/admin");
+  }
+
+  await authPool.query(
+    "UPDATE account SET locked = ? WHERE id = ?",
+    [lockState, account.id]
+  );
+
+  req.session.flash = {
+    type: "success",
+    message: `${account.username} is now ${lockState ? "locked" : "unlocked"}.`
+  };
+  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
 });
 
 async function start() {
@@ -364,6 +870,14 @@ async function start() {
     database: charactersDbName,
     waitForConnections: true,
     connectionLimit: 8,
+    namedPlaceholders: false
+  });
+
+  worldPool = mysql.createPool({
+    ...dbConfig,
+    database: worldDbName,
+    waitForConnections: true,
+    connectionLimit: 6,
     namedPlaceholders: false
   });
 
