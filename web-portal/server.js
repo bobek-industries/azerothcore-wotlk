@@ -1,8 +1,10 @@
 const crypto = require("crypto");
 const net = require("net");
+const fs = require("fs");
 const express = require("express");
 const session = require("express-session");
 const mysql = require("mysql2/promise");
+const nodemailer = require("nodemailer");
 const path = require("path");
 
 const app = express();
@@ -15,9 +17,75 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || "password"
 };
 
+const verificationTokenTtlHours = Number(process.env.MAIL_VERIFY_TTL_HOURS || 24);
+
 const authDbName = process.env.AUTH_DB_NAME || "acore_auth";
 const charactersDbName = process.env.CHARS_DB_NAME || "acore_characters";
 const worldDbName = process.env.WORLD_DB_NAME || "acore_world";
+
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null)
+    return fallback;
+
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized))
+    return true;
+  if (["0", "false", "no", "off"].includes(normalized))
+    return false;
+  return fallback;
+}
+
+function loadPortalConfig() {
+  const configPath = process.env.WEB_PORTAL_CONFIG;
+  if (!configPath)
+    return {};
+
+  try {
+    if (!fs.existsSync(configPath))
+      return {};
+
+    const raw = fs.readFileSync(configPath, "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error("Failed to load WEB_PORTAL_CONFIG:", error.message);
+    return {};
+  }
+}
+
+const portalConfig = loadPortalConfig();
+const configMail = portalConfig.mail || {};
+
+const mailConfig = {
+  enabled: parseBoolean(process.env.MAIL_ENABLED, parseBoolean(configMail.enabled, false)),
+  host: process.env.MAIL_HOST || configMail.host || "",
+  port: Number(process.env.MAIL_PORT || configMail.port || 465),
+  secure: parseBoolean(process.env.MAIL_SECURE, parseBoolean(configMail.secure, true)),
+  user: process.env.MAIL_USER || configMail.user || "",
+  pass: process.env.MAIL_PASS || configMail.pass || "",
+  from: process.env.MAIL_FROM || configMail.from || ""
+};
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+let mailTransport = null;
+if (mailConfig.enabled) {
+  if (!mailConfig.host || !mailConfig.user || !mailConfig.pass || !mailConfig.from) {
+    console.warn("Mail is enabled but configuration is incomplete. SMTP is disabled.");
+  } else {
+    mailTransport = nodemailer.createTransport({
+      host: mailConfig.host,
+      port: mailConfig.port,
+      secure: mailConfig.secure,
+      auth: {
+        user: mailConfig.user,
+        pass: mailConfig.pass
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+  }
+}
 
 const N = BigInt(
   "0x894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7"
@@ -144,6 +212,97 @@ function credentialsValidation(username, password) {
     return "Password can have at most 16 characters.";
 
   return null;
+}
+
+function normalizeEmail(value) {
+  return (value || "").trim().toLowerCase();
+}
+
+function emailValidation(email, required = false) {
+  if (!email) {
+    if (required)
+      return "Email is required.";
+    return null;
+  }
+
+  if (!emailRegex.test(email))
+    return "Please provide a valid email address.";
+
+  if (email.length > 255)
+    return "Email is too long.";
+
+  return null;
+}
+
+async function sendPortalMail(to, subject, text, html) {
+  if (!mailTransport)
+    return false;
+
+  if (!to)
+    return false;
+
+  try {
+    await mailTransport.sendMail({
+      from: mailConfig.from,
+      to,
+      subject,
+      text,
+      html
+    });
+    return true;
+  } catch (error) {
+    console.error(`Email send failed (${subject}):`, error.message);
+    return false;
+  }
+}
+
+function hashVerificationToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function getPortalBaseUrl(req) {
+  const configured = (process.env.PORTAL_BASE_URL || "").trim();
+  if (configured)
+    return configured.replace(/\/+$/, "");
+
+  const host = req.get("host");
+  const protocol = req.protocol || "http";
+  return `${protocol}://${host}`;
+}
+
+async function createOrRefreshEmailVerification(accountId, email, pendingSalt, pendingVerifier) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashVerificationToken(token);
+  const expiresAt = new Date(Date.now() + verificationTokenTtlHours * 60 * 60 * 1000);
+
+  await authPool.query(
+    `INSERT INTO portal_email_verification (
+      account_id, email, token_hash, expires_at, pending_salt, pending_verifier, verified_at
+    ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+    ON DUPLICATE KEY UPDATE
+      email = VALUES(email),
+      token_hash = VALUES(token_hash),
+      expires_at = VALUES(expires_at),
+      pending_salt = VALUES(pending_salt),
+      pending_verifier = VALUES(pending_verifier),
+      verified_at = NULL`,
+    [accountId, email, tokenHash, expiresAt, pendingSalt, pendingVerifier]
+  );
+
+  return token;
+}
+
+async function getPendingEmailVerification(accountId) {
+  const [rows] = await authPool.query(
+    `SELECT email, expires_at, pending_salt, pending_verifier
+     FROM portal_email_verification
+     WHERE account_id = ?
+       AND verified_at IS NULL
+     LIMIT 1`,
+    [accountId]
+  );
+
+  return rows[0] || null;
 }
 
 function parseAccountInput(rawInput) {
@@ -454,6 +613,13 @@ app.post("/reset-password", async (req, res) => {
     req.body.username,
     req.body.password
   );
+  const email = normalizeEmail(req.body.email);
+
+  const emailError = emailValidation(email, true);
+  if (emailError) {
+    req.session.flash = { type: "error", message: emailError };
+    return res.redirect("/");
+  }
 
   const validationError = credentialsValidation(username, password);
   if (validationError) {
@@ -463,7 +629,7 @@ app.post("/reset-password", async (req, res) => {
 
   try {
     const [rows] = await authPool.query(
-      "SELECT id, username FROM account WHERE username = ? LIMIT 1",
+      "SELECT id, username, email FROM account WHERE username = ? LIMIT 1",
       [username]
     );
 
@@ -476,6 +642,15 @@ app.post("/reset-password", async (req, res) => {
     }
 
     const account = rows[0];
+    const accountEmail = normalizeEmail(account.email);
+    if (!accountEmail || accountEmail !== email) {
+      req.session.flash = {
+        type: "error",
+        message: "Email does not match the account record."
+      };
+      return res.redirect("/");
+    }
+
     const salt = crypto.randomBytes(32);
     const verifier = calculateVerifier(account.username, password, salt);
 
@@ -488,6 +663,13 @@ app.post("/reset-password", async (req, res) => {
       type: "success",
       message: "Password has been reset. You can log in with the new password."
     };
+
+    await sendPortalMail(
+      accountEmail,
+      "AzerothCore account password changed",
+      `Hello ${account.username}, your portal password was changed successfully.`,
+      `<p>Hello <strong>${account.username}</strong>,</p><p>Your portal password was changed successfully.</p>`
+    );
   } catch (error) {
     req.session.flash = {
       type: "error",
@@ -503,12 +685,21 @@ app.post("/register", async (req, res) => {
     req.body.username,
     req.body.password
   );
+  const email = normalizeEmail(req.body.email);
+
+  const emailError = emailValidation(email, true);
+  if (emailError) {
+    req.session.flash = { type: "error", message: emailError };
+    return res.redirect("/");
+  }
 
   const validationError = credentialsValidation(username, password);
   if (validationError) {
     req.session.flash = { type: "error", message: validationError };
     return res.redirect("/");
   }
+
+  let createdAccountId = null;
 
   try {
     const [existing] = await authPool.query(
@@ -526,19 +717,65 @@ app.post("/register", async (req, res) => {
 
     const salt = crypto.randomBytes(32);
     const verifier = calculateVerifier(username, password, salt);
+    const blockedSalt = crypto.randomBytes(32);
+    const blockedVerifier = crypto.randomBytes(32);
 
-    await authPool.query(
+    const [insertResult] = await authPool.query(
       `INSERT INTO account (
         username, salt, verifier, expansion, email, reg_mail
-      ) VALUES (?, ?, ?, 2, '', '')`,
-      [username, salt, verifier]
+      ) VALUES (?, ?, ?, 2, ?, ?)`,
+      [username, blockedSalt, blockedVerifier, email, email]
     );
+
+    const accountId = Number(insertResult.insertId);
+    createdAccountId = accountId;
+    const token = await createOrRefreshEmailVerification(accountId, email, salt, verifier);
+    const verifyUrl = `${getPortalBaseUrl(req)}/verify-email?token=${encodeURIComponent(token)}`;
+
+    const mailSent = await sendPortalMail(
+      email,
+      "Verify your AzerothCore portal account",
+      `Hello ${username}, verify your email by opening this link: ${verifyUrl}`,
+      `<p>Hello <strong>${username}</strong>,</p><p>Please verify your account email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`
+    );
+
+    if (!mailSent) {
+      await authPool.query(
+        "DELETE FROM portal_email_verification WHERE account_id = ?",
+        [accountId]
+      );
+      await authPool.query(
+        "DELETE FROM account WHERE id = ?",
+        [accountId]
+      );
+
+      req.session.flash = {
+        type: "error",
+        message: "Registration failed: could not send verification email."
+      };
+      return res.redirect("/");
+    }
 
     req.session.flash = {
       type: "success",
-      message: "Account created. You can log in now."
+      message: "Account created. Please verify your email before logging in."
     };
   } catch (error) {
+    if (createdAccountId) {
+      try {
+        await authPool.query(
+          "DELETE FROM portal_email_verification WHERE account_id = ?",
+          [createdAccountId]
+        );
+        await authPool.query(
+          "DELETE FROM account WHERE id = ?",
+          [createdAccountId]
+        );
+      } catch (cleanupError) {
+        console.error("Registration cleanup failed:", cleanupError.message);
+      }
+    }
+
     req.session.flash = {
       type: "error",
       message: `Registration failed: ${error.code || "db_error"}`
@@ -546,6 +783,75 @@ app.post("/register", async (req, res) => {
   }
 
   return res.redirect("/");
+});
+
+app.get("/verify-email", async (req, res) => {
+  const token = (req.query.token || "").toString().trim();
+  if (!token) {
+    req.session.flash = {
+      type: "error",
+      message: "Verification token is missing."
+    };
+    return res.redirect("/");
+  }
+
+  try {
+    const tokenHash = hashVerificationToken(token);
+    const [rows] = await authPool.query(
+      `SELECT account_id, email, expires_at, verified_at, pending_salt, pending_verifier
+       FROM portal_email_verification
+       WHERE token_hash = ?
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (rows.length === 0) {
+      req.session.flash = {
+        type: "error",
+        message: "Invalid verification token."
+      };
+      return res.redirect("/");
+    }
+
+    const verification = rows[0];
+    if (verification.verified_at) {
+      req.session.flash = {
+        type: "success",
+        message: "Email is already verified. You can log in."
+      };
+      return res.redirect("/");
+    }
+
+    if (new Date(verification.expires_at).getTime() < Date.now()) {
+      req.session.flash = {
+        type: "error",
+        message: "Verification token expired. Please log in again to receive a new link."
+      };
+      return res.redirect("/");
+    }
+
+    await authPool.query(
+      "UPDATE account SET salt = ?, verifier = ? WHERE id = ?",
+      [verification.pending_salt, verification.pending_verifier, verification.account_id]
+    );
+
+    await authPool.query(
+      "UPDATE portal_email_verification SET verified_at = NOW() WHERE account_id = ?",
+      [verification.account_id]
+    );
+
+    req.session.flash = {
+      type: "success",
+      message: "Email verified successfully. You can log in now."
+    };
+    return res.redirect("/");
+  } catch (error) {
+    req.session.flash = {
+      type: "error",
+      message: `Email verification failed: ${error.code || "db_error"}`
+    };
+    return res.redirect("/");
+  }
 });
 
 app.post("/login", async (req, res) => {
@@ -562,7 +868,7 @@ app.post("/login", async (req, res) => {
 
   try {
     const [rows] = await authPool.query(
-      "SELECT id, username, salt, verifier FROM account WHERE username = ? LIMIT 1",
+      "SELECT id, username, salt, verifier, email FROM account WHERE username = ? LIMIT 1",
       [username]
     );
 
@@ -572,6 +878,50 @@ app.post("/login", async (req, res) => {
     }
 
     const account = rows[0];
+    const pendingVerification = await getPendingEmailVerification(account.id);
+    if (pendingVerification) {
+      const isExpired = new Date(pendingVerification.expires_at).getTime() < Date.now();
+
+      if (isExpired) {
+        const recipient = normalizeEmail(account.email || pendingVerification.email);
+        if (!recipient) {
+          req.session.flash = {
+            type: "error",
+            message: "Email verification pending, but no email is set on this account."
+          };
+          return res.redirect("/");
+        }
+
+        const token = await createOrRefreshEmailVerification(
+          account.id,
+          recipient,
+          pendingVerification.pending_salt,
+          pendingVerification.pending_verifier
+        );
+        const verifyUrl = `${getPortalBaseUrl(req)}/verify-email?token=${encodeURIComponent(token)}`;
+        const mailSent = await sendPortalMail(
+          recipient,
+          "Verify your AzerothCore portal account",
+          `Hello ${account.username}, verify your email by opening this link: ${verifyUrl}`,
+          `<p>Hello <strong>${account.username}</strong>,</p><p>Your previous verification link expired. Please use this new link:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`
+        );
+
+        req.session.flash = {
+          type: "error",
+          message: mailSent
+            ? "Verification link expired. A new verification email has been sent."
+            : "Verification link expired, but sending a new email failed. Please contact support."
+        };
+        return res.redirect("/");
+      }
+
+      req.session.flash = {
+        type: "error",
+        message: "Please verify your email before logging in."
+      };
+      return res.redirect("/");
+    }
+
     const expectedVerifier = calculateVerifier(
       account.username,
       password,
@@ -918,6 +1268,57 @@ async function createAuditTable() {
   `);
 }
 
+async function createEmailVerificationTable() {
+  await authPool.query(`
+    CREATE TABLE IF NOT EXISTS portal_email_verification (
+      id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      account_id  INT UNSIGNED    NOT NULL,
+      email       VARCHAR(255)    NOT NULL,
+      token_hash  CHAR(64)        NOT NULL,
+      created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at  DATETIME        NOT NULL,
+      verified_at DATETIME        DEFAULT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_account_id (account_id),
+      UNIQUE KEY uq_token_hash (token_hash),
+      KEY idx_expires (expires_at),
+      KEY idx_verified (verified_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  const [saltColRows] = await authPool.query(
+    `SELECT 1
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = 'portal_email_verification'
+       AND COLUMN_NAME = 'pending_salt'
+     LIMIT 1`,
+    [authDbName]
+  );
+
+  if (saltColRows.length === 0) {
+    await authPool.query(
+      "ALTER TABLE portal_email_verification ADD COLUMN pending_salt BINARY(32) NOT NULL AFTER expires_at"
+    );
+  }
+
+  const [verifierColRows] = await authPool.query(
+    `SELECT 1
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = 'portal_email_verification'
+       AND COLUMN_NAME = 'pending_verifier'
+     LIMIT 1`,
+    [authDbName]
+  );
+
+  if (verifierColRows.length === 0) {
+    await authPool.query(
+      "ALTER TABLE portal_email_verification ADD COLUMN pending_verifier BINARY(32) NOT NULL AFTER pending_salt"
+    );
+  }
+}
+
 async function writeAudit(actorId, actorUser, action, targetId, targetUser, details) {
   try {
     await authPool.query(
@@ -956,6 +1357,16 @@ async function start() {
   });
 
   await createAuditTable();
+  await createEmailVerificationTable();
+
+  if (mailTransport) {
+    try {
+      await mailTransport.verify();
+      console.log(`SMTP connected to ${mailConfig.host}:${mailConfig.port}`);
+    } catch (error) {
+      console.error("SMTP verification failed:", error.message);
+    }
+  }
 
   app.listen(port, () => {
     console.log(`AzerothCore web portal running on port ${port}`);

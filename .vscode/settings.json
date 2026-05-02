@@ -125,4 +125,33 @@
     "C_Cpp.default.compilerPath": "/usr/bin/clang",
     "cmake.sourceDirectory": ["${workspaceFolder}"],
     "cmake.buildDirectory": "${workspaceFolder}/var/build",
+    "sqltools.connections": [
+        {
+            "name": "AzerothCore - Auth",
+            "driver": "MySQL",
+            "server": "localhost",
+            "port": 3306,
+            "database": "acore_auth",
+            "username": "root",
+            "password": "password"
+        },
+        {
+            "name": "AzerothCore - Characters",
+            "driver": "MySQL",
+            "server": "localhost",
+            "port": 3306,
+            "database": "acore_characters",
+            "username": "root",
+            "password": "password"
+        },
+        {
+            "name": "AzerothCore - World",
+            "driver": "MySQL",
+            "server": "localhost",
+            "port": 3306,
+            "database": "acore_world",
+            "username": "root",
+            "password": "password"
+        }
+    ]
 }
