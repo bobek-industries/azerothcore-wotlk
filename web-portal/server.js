@@ -715,6 +715,19 @@ app.post("/register", async (req, res) => {
       return res.redirect("/");
     }
 
+    const [existingEmail] = await authPool.query(
+      "SELECT id FROM account WHERE email = ? LIMIT 1",
+      [email]
+    );
+
+    if (existingEmail.length > 0) {
+      req.session.flash = {
+        type: "error",
+        message: "This email address is already used by another account."
+      };
+      return res.redirect("/");
+    }
+
     const salt = crypto.randomBytes(32);
     const verifier = calculateVerifier(username, password, salt);
     const blockedSalt = crypto.randomBytes(32);
@@ -774,6 +787,14 @@ app.post("/register", async (req, res) => {
       } catch (cleanupError) {
         console.error("Registration cleanup failed:", cleanupError.message);
       }
+    }
+
+    if (error.code === "ER_DUP_ENTRY") {
+      req.session.flash = {
+        type: "error",
+        message: "Registration failed: username or email already exists."
+      };
+      return res.redirect("/");
     }
 
     req.session.flash = {
@@ -1319,6 +1340,39 @@ async function createEmailVerificationTable() {
   }
 }
 
+async function ensureUniqueAccountEmailConstraint() {
+  const [indexRows] = await authPool.query(
+    `SELECT 1
+     FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = 'account'
+       AND INDEX_NAME = 'uq_account_email'
+     LIMIT 1`,
+    [authDbName]
+  );
+
+  if (indexRows.length > 0)
+    return;
+
+  const [duplicateRows] = await authPool.query(
+    `SELECT LOWER(email) AS normalized_email, COUNT(*) AS total
+     FROM account
+     WHERE COALESCE(TRIM(email), '') <> ''
+     GROUP BY LOWER(email)
+     HAVING total > 1
+     LIMIT 1`
+  );
+
+  if (duplicateRows.length > 0) {
+    console.warn("Skipping unique email index: duplicate account emails already exist.");
+    return;
+  }
+
+  await authPool.query(
+    "ALTER TABLE account ADD UNIQUE KEY uq_account_email (email)"
+  );
+}
+
 async function writeAudit(actorId, actorUser, action, targetId, targetUser, details) {
   try {
     await authPool.query(
@@ -1358,6 +1412,7 @@ async function start() {
 
   await createAuditTable();
   await createEmailVerificationTable();
+  await ensureUniqueAccountEmailConstraint();
 
   if (mailTransport) {
     try {
