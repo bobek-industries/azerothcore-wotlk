@@ -18,6 +18,7 @@ const dbConfig = {
 };
 
 const verificationTokenTtlHours = Number(process.env.MAIL_VERIFY_TTL_HOURS || 24);
+const passwordResetTokenTtlMinutes = Number(process.env.MAIL_RESET_TTL_MINUTES || 30);
 
 const authDbName = process.env.AUTH_DB_NAME || "acore_auth";
 const charactersDbName = process.env.CHARS_DB_NAME || "acore_characters";
@@ -214,6 +215,16 @@ function credentialsValidation(username, password) {
   return null;
 }
 
+function passwordValidation(password) {
+  if (!password)
+    return "Password is required.";
+
+  if (password.length > 16)
+    return "Password can have at most 16 characters.";
+
+  return null;
+}
+
 function normalizeEmail(value) {
   return (value || "").trim().toLowerCase();
 }
@@ -300,6 +311,45 @@ async function getPendingEmailVerification(accountId) {
        AND verified_at IS NULL
      LIMIT 1`,
     [accountId]
+  );
+
+  return rows[0] || null;
+}
+
+async function createOrRefreshPasswordReset(accountId, email) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashVerificationToken(token);
+  const expiresAt = new Date(Date.now() + passwordResetTokenTtlMinutes * 60 * 1000);
+
+  await authPool.query(
+    `INSERT INTO portal_password_reset (
+      account_id, email, token_hash, expires_at, used_at
+    ) VALUES (?, ?, ?, ?, NULL)
+    ON DUPLICATE KEY UPDATE
+      email = VALUES(email),
+      token_hash = VALUES(token_hash),
+      expires_at = VALUES(expires_at),
+      used_at = NULL`,
+    [accountId, email, tokenHash, expiresAt]
+  );
+
+  return token;
+}
+
+async function getPasswordResetByToken(token) {
+  const tokenHash = hashVerificationToken(token);
+  const [rows] = await authPool.query(
+    `SELECT
+       pr.account_id,
+       pr.email,
+       pr.expires_at,
+       pr.used_at,
+       a.username
+     FROM portal_password_reset pr
+     JOIN account a ON a.id = pr.account_id
+     WHERE pr.token_hash = ?
+     LIMIT 1`,
+    [tokenHash]
   );
 
   return rows[0] || null;
@@ -609,10 +659,7 @@ app.get("/", async (req, res) => {
 });
 
 app.post("/reset-password", async (req, res) => {
-  const { username, password } = normalizeCredentials(
-    req.body.username,
-    req.body.password
-  );
+  const username = upperLatin(req.body.username);
   const email = normalizeEmail(req.body.email);
 
   const emailError = emailValidation(email, true);
@@ -621,9 +668,16 @@ app.post("/reset-password", async (req, res) => {
     return res.redirect("/");
   }
 
-  const validationError = credentialsValidation(username, password);
-  if (validationError) {
-    req.session.flash = { type: "error", message: validationError };
+  if (!username) {
+    req.session.flash = { type: "error", message: "Username is required." };
+    return res.redirect("/");
+  }
+
+  if (username.length > 16) {
+    req.session.flash = {
+      type: "error",
+      message: "Username can have at most 16 characters."
+    };
     return res.redirect("/");
   }
 
@@ -651,25 +705,28 @@ app.post("/reset-password", async (req, res) => {
       return res.redirect("/");
     }
 
-    const salt = crypto.randomBytes(32);
-    const verifier = calculateVerifier(account.username, password, salt);
+    const token = await createOrRefreshPasswordReset(account.id, accountEmail);
+    const resetUrl = `${getPortalBaseUrl(req)}/reset-password?token=${encodeURIComponent(token)}`;
 
-    await authPool.query(
-      "UPDATE account SET salt = ?, verifier = ? WHERE id = ?",
-      [salt, verifier, account.id]
+    const mailSent = await sendPortalMail(
+      accountEmail,
+      "AzerothCore password reset link",
+      `Hello ${account.username}, open this link to set a new password: ${resetUrl}`,
+      `<p>Hello <strong>${account.username}</strong>,</p><p>Open this link to set a new password:</p><p><a href="${resetUrl}">${resetUrl}</a></p>`
     );
+
+    if (!mailSent) {
+      req.session.flash = {
+        type: "error",
+        message: "Password reset failed: could not send reset email."
+      };
+      return res.redirect("/");
+    }
 
     req.session.flash = {
       type: "success",
-      message: "Password has been reset. You can log in with the new password."
+      message: "Password reset link sent. Open your email to continue."
     };
-
-    await sendPortalMail(
-      accountEmail,
-      "AzerothCore account password changed",
-      `Hello ${account.username}, your portal password was changed successfully.`,
-      `<p>Hello <strong>${account.username}</strong>,</p><p>Your portal password was changed successfully.</p>`
-    );
   } catch (error) {
     req.session.flash = {
       type: "error",
@@ -678,6 +735,140 @@ app.post("/reset-password", async (req, res) => {
   }
 
   return res.redirect("/");
+});
+
+app.get("/reset-password", async (req, res) => {
+  const token = (req.query.token || "").toString().trim();
+  if (!token) {
+    req.session.flash = {
+      type: "error",
+      message: "Password reset token is missing."
+    };
+    return res.redirect("/");
+  }
+
+  try {
+    const resetData = await getPasswordResetByToken(token);
+    if (!resetData) {
+      req.session.flash = {
+        type: "error",
+        message: "Invalid password reset token."
+      };
+      return res.redirect("/");
+    }
+
+    if (resetData.used_at) {
+      req.session.flash = {
+        type: "error",
+        message: "This password reset link was already used."
+      };
+      return res.redirect("/");
+    }
+
+    if (new Date(resetData.expires_at).getTime() < Date.now()) {
+      req.session.flash = {
+        type: "error",
+        message: "Password reset link expired. Please request a new one."
+      };
+      return res.redirect("/");
+    }
+
+    return res.render("reset-password", {
+      flash: consumeFlash(req),
+      token,
+      username: resetData.username
+    });
+  } catch (error) {
+    req.session.flash = {
+      type: "error",
+      message: `Password reset page failed: ${error.code || "db_error"}`
+    };
+    return res.redirect("/");
+  }
+});
+
+app.post("/reset-password/confirm", async (req, res) => {
+  const token = (req.body.token || "").toString().trim();
+  const password = upperLatin(req.body.password);
+  const passwordConfirm = upperLatin(req.body.passwordConfirm);
+
+  if (!token) {
+    req.session.flash = {
+      type: "error",
+      message: "Password reset token is missing."
+    };
+    return res.redirect("/");
+  }
+
+  const passwordError = passwordValidation(password);
+  if (passwordError) {
+    req.session.flash = { type: "error", message: passwordError };
+    return res.redirect(`/reset-password?token=${encodeURIComponent(token)}`);
+  }
+
+  if (password !== passwordConfirm) {
+    req.session.flash = { type: "error", message: "Passwords do not match." };
+    return res.redirect(`/reset-password?token=${encodeURIComponent(token)}`);
+  }
+
+  try {
+    const resetData = await getPasswordResetByToken(token);
+    if (!resetData) {
+      req.session.flash = {
+        type: "error",
+        message: "Invalid password reset token."
+      };
+      return res.redirect("/");
+    }
+
+    if (resetData.used_at) {
+      req.session.flash = {
+        type: "error",
+        message: "This password reset link was already used."
+      };
+      return res.redirect("/");
+    }
+
+    if (new Date(resetData.expires_at).getTime() < Date.now()) {
+      req.session.flash = {
+        type: "error",
+        message: "Password reset link expired. Please request a new one."
+      };
+      return res.redirect("/");
+    }
+
+    const salt = crypto.randomBytes(32);
+    const verifier = calculateVerifier(resetData.username, password, salt);
+
+    await authPool.query(
+      "UPDATE account SET salt = ?, verifier = ? WHERE id = ?",
+      [salt, verifier, resetData.account_id]
+    );
+
+    await authPool.query(
+      "UPDATE portal_password_reset SET used_at = NOW() WHERE account_id = ?",
+      [resetData.account_id]
+    );
+
+    await sendPortalMail(
+      resetData.email,
+      "AzerothCore account password changed",
+      `Hello ${resetData.username}, your portal password was changed successfully.`,
+      `<p>Hello <strong>${resetData.username}</strong>,</p><p>Your portal password was changed successfully.</p>`
+    );
+
+    req.session.flash = {
+      type: "success",
+      message: "Password has been reset. You can log in with the new password."
+    };
+    return res.redirect("/");
+  } catch (error) {
+    req.session.flash = {
+      type: "error",
+      message: `Password reset failed: ${error.code || "db_error"}`
+    };
+    return res.redirect(`/reset-password?token=${encodeURIComponent(token)}`);
+  }
 });
 
 app.post("/register", async (req, res) => {
@@ -1340,6 +1531,25 @@ async function createEmailVerificationTable() {
   }
 }
 
+async function createPasswordResetTable() {
+  await authPool.query(`
+    CREATE TABLE IF NOT EXISTS portal_password_reset (
+      id          INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      account_id  INT UNSIGNED    NOT NULL,
+      email       VARCHAR(255)    NOT NULL,
+      token_hash  CHAR(64)        NOT NULL,
+      created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at  DATETIME        NOT NULL,
+      used_at     DATETIME        DEFAULT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_account_id (account_id),
+      UNIQUE KEY uq_token_hash (token_hash),
+      KEY idx_expires (expires_at),
+      KEY idx_used (used_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+
 async function ensureUniqueAccountEmailConstraint() {
   const [indexRows] = await authPool.query(
     `SELECT 1
@@ -1412,6 +1622,7 @@ async function start() {
 
   await createAuditTable();
   await createEmailVerificationTable();
+  await createPasswordResetTable();
   await ensureUniqueAccountEmailConstraint();
 
   if (mailTransport) {

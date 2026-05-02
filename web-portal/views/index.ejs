@@ -88,7 +88,7 @@
           </form>
 
           <form id="reset" class="panel hidden" method="post" action="/reset-password">
-            <h2>Password Reset</h2>
+            <h2>Password Reset Link</h2>
             <label>
               Username
               <input name="username" maxlength="16" required />
@@ -97,17 +97,13 @@
               Email
               <input name="email" type="email" maxlength="255" required />
             </label>
-            <label>
-              New Password
-              <input name="password" type="password" maxlength="16" required />
-            </label>
-            <button type="submit" class="btn btn-primary">Reset Password</button>
+            <button type="submit" class="btn btn-primary">Send Reset Link</button>
           </form>
         </section>
 
         <div class="link-row">
           <button class="text-link" type="button" data-target="reset">
-            Forgot password? Quick reset
+            Forgot password? Send reset link
           </button>
         </div>
         <% } %>
