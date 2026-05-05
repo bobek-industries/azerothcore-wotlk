@@ -3,40 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><%= user.username %> - Character Panel</title>
+    <title><%= user.username %> &mdash; Character Panel</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <div class="aurora"></div>
+
+    <nav class="site-nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          Bobek Industries
+          <span class="nav-sub">WotLK 3.3.5a</span>
+        </a>
+        <div class="nav-links">
+          <a class="btn btn-ghost" href="/">Home</a>
+          <% if (user.gmlevel >= 3) { %>
+          <a class="btn btn-ghost" href="/admin">Admin</a>
+          <% } %>
+          <form method="post" action="/logout">
+            <button class="btn btn-danger" type="submit">Log Out</button>
+          </form>
+        </div>
+      </div>
+    </nav>
+
     <main class="shell reveal">
-      <section class="hero card">
+      <section class="card">
         <p class="kicker">User Panel</p>
         <h1><%= user.username %></h1>
         <p class="subtitle">Your characters on this realm.</p>
-
-        <div class="actions">
-          <a class="btn btn-ghost" href="/">Back To Dashboard</a>
-          <% if (user.gmlevel >= 3) { %>
-          <a class="btn btn-ghost" href="/admin">Admin Panel</a>
-          <% } %>
-          <form method="post" action="/logout">
-            <button class="btn btn-primary" type="submit">Log Out</button>
-          </form>
-        </div>
 
         <% if (flash) { %>
         <div class="flash <%= flash.type %>"><%= flash.message %></div>
         <% } %>
 
+        <div class="divider">
+          <h2>Characters</h2>
+        </div>
+
         <div class="characters">
           <% if (characters.length === 0) { %>
-          <div class="empty">No characters yet. Create one in game and refresh this page.</div>
+          <div class="empty">No characters found. Create one in-game and refresh this page.</div>
           <% } %>
 
           <% characters.forEach((character) => { %>
@@ -47,10 +60,10 @@
                 <%= character.online ? 'Online' : 'Offline' %>
               </span>
             </header>
-            <p>Level <strong><%= character.level %></strong> <%= character.race %> <%= character.class %></p>
-            <small>GUID: <%= character.guid %></small>
+            <p>Level <strong><%= character.level %></strong> &mdash; <%= character.race %> <%= character.class %></p>
+            <small>GUID <%= character.guid %></small>
             <div class="card-actions">
-              <a class="btn btn-ghost" href="/characters/<%= character.guid %>">Details</a>
+              <a class="btn btn-ghost" href="/characters/<%= character.guid %>">View Details</a>
             </div>
           </article>
           <% }) %>

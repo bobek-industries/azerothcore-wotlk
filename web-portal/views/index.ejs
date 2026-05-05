@@ -3,24 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AzerothCore Realm Portal</title>
+    <title>Bobek Industries &mdash; Realm Portal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <div class="aurora"></div>
+
+    <nav class="site-nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          Bobek Industries
+          <span class="nav-sub">WotLK 3.3.5a</span>
+        </a>
+        <div class="nav-links">
+          <% if (user) { %>
+          <a class="btn btn-ghost" href="/panel">My Characters</a>
+          <% if (user.gmlevel >= 3) { %>
+          <a class="btn btn-ghost" href="/admin">Admin</a>
+          <% } %>
+          <form method="post" action="/logout">
+            <button class="btn btn-danger" type="submit">Log Out</button>
+          </form>
+          <% } else { %>
+          <button class="btn btn-ghost" type="button" data-target="login">Login</button>
+          <button class="btn btn-primary" type="button" data-target="register">Register</button>
+          <% } %>
+        </div>
+      </div>
+    </nav>
+
     <main class="shell reveal">
-      <section class="hero card">
-        <p class="kicker">Realm Portal</p>
+      <section class="card">
+        <div class="realm-badge">
+          <span>Wrath of the Lich King</span>
+          <small>&bull; Patch 3.3.5a</small>
+        </div>
+        <p class="kicker">Bobek Industries</p>
         <h1>Welcome to Azeroth</h1>
-        <p class="subtitle">
-          Register, log in, and track your adventurers from one clean dashboard.
-        </p>
+        <p class="subtitle">Register an account, log in, and track your adventurers.</p>
+
+        <div class="divider" style="margin-top:1.8rem">
+          <h2>Server Status</h2>
+        </div>
 
         <div class="status-grid">
           <% status.forEach((item) => { %>
@@ -32,33 +62,51 @@
           <% }) %>
         </div>
 
+        <div class="divider"><h2>Players Online</h2></div>
+
+        <div class="online-stats">
+          <div class="online-count">
+            <span class="count-number"><%= onlineStats.total %></span>
+            <span class="count-label">Online</span>
+          </div>
+
+          <div class="faction-bar-wrap">
+            <div class="faction-labels">
+              <span class="faction-label alliance">
+                <span class="dot"></span>
+                Alliance &mdash; <%= onlineStats.alliance %> (<%= onlineStats.alliancePercent %>%)
+              </span>
+              <span class="faction-label horde">
+                Horde &mdash; <%= onlineStats.horde %> (<%= onlineStats.hordePercent %>%)
+                <span class="dot"></span>
+              </span>
+            </div>
+            <% if (onlineStats.total > 0) { %>
+            <div class="faction-bar">
+              <div class="bar-alliance" style="width:<%= onlineStats.alliancePercent %>%"></div>
+              <div class="bar-horde"    style="width:<%= onlineStats.hordePercent %>%"></div>
+            </div>
+            <% } else { %>
+            <div class="faction-bar-empty"></div>
+            <% } %>
+          </div>
+        </div>
+
         <% if (flash) { %>
         <div class="flash <%= flash.type %>"><%= flash.message %></div>
         <% } %>
 
         <% if (user) { %>
         <div class="actions">
-          <a href="/panel" class="btn btn-primary">Open User Panel</a>
+          <a href="/panel" class="btn btn-primary">Open Character Panel</a>
           <% if (user.gmlevel >= 3) { %>
-          <a href="/admin" class="btn btn-ghost">Open Admin Panel</a>
+          <a href="/admin" class="btn btn-ghost">Admin Panel</a>
           <% } %>
-          <form method="post" action="/logout">
-            <button class="btn btn-ghost" type="submit">Log Out</button>
-          </form>
         </div>
         <% } else { %>
-        <div class="actions">
-          <button class="btn btn-primary" type="button" data-target="register">
-            Register
-          </button>
-          <button class="btn btn-ghost" type="button" data-target="login">
-            Login
-          </button>
-        </div>
-
         <section class="forms">
-          <form id="register" class="panel" method="post" action="/register">
-            <h2>Create Account</h2>
+          <form id="register" class="panel hidden" method="post" action="/register">
+            <div class="divider"><h2>Create Account</h2></div>
             <label>
               Username
               <input name="username" maxlength="16" required />
@@ -75,7 +123,7 @@
           </form>
 
           <form id="login" class="panel hidden" method="post" action="/login">
-            <h2>Account Login</h2>
+            <div class="divider"><h2>Account Login</h2></div>
             <label>
               Username
               <input name="username" maxlength="16" required />
@@ -88,7 +136,7 @@
           </form>
 
           <form id="reset" class="panel hidden" method="post" action="/reset-password">
-            <h2>Password Reset Link</h2>
+            <div class="divider"><h2>Password Reset</h2></div>
             <label>
               Username
               <input name="username" maxlength="16" required />
@@ -103,7 +151,7 @@
 
         <div class="link-row">
           <button class="text-link" type="button" data-target="reset">
-            Forgot password? Send reset link
+            Forgot your password?
           </button>
         </div>
         <% } %>
@@ -112,12 +160,12 @@
 
     <script>
       const buttons = document.querySelectorAll("[data-target]");
-      const forms = document.querySelectorAll(".panel");
+      const forms   = document.querySelectorAll(".panel");
 
-      buttons.forEach((button) => {
-        button.addEventListener("click", () => {
-          forms.forEach((form) => form.classList.add("hidden"));
-          document.getElementById(button.dataset.target).classList.remove("hidden");
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          forms.forEach((f) => f.classList.add("hidden"));
+          document.getElementById(btn.dataset.target).classList.remove("hidden");
         });
       });
     </script>

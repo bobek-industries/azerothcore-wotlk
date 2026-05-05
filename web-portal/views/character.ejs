@@ -3,38 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><%= character.name %> - Character Details</title>
+    <title><%= character.name %> &mdash; Character Details</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <div class="aurora"></div>
+
+    <nav class="site-nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          Bobek Industries
+          <span class="nav-sub">WotLK 3.3.5a</span>
+        </a>
+        <div class="nav-links">
+          <a class="btn btn-ghost" href="/panel">My Characters</a>
+          <% if (isAdmin) { %>
+          <a class="btn btn-ghost" href="/admin">Admin</a>
+          <% } %>
+          <form method="post" action="/logout">
+            <button class="btn btn-danger" type="submit">Log Out</button>
+          </form>
+        </div>
+      </div>
+    </nav>
+
     <main class="shell reveal">
-      <section class="hero card">
+      <section class="card">
         <p class="kicker">Character Details</p>
         <h1><%= character.name %></h1>
         <p class="subtitle">
-          Level <strong><%= character.level %></strong> <%= character.race %> <%= character.class %>
+          Level <strong><%= character.level %></strong> &mdash; <%= character.race %> <%= character.class %>
         </p>
-
-        <div class="actions">
-          <a class="btn btn-ghost" href="/panel">Back To User Panel</a>
-          <% if (isAdmin) { %>
-          <a class="btn btn-ghost" href="/admin">Admin Panel</a>
-          <% } %>
-          <form method="post" action="/logout">
-            <button class="btn btn-primary" type="submit">Log Out</button>
-          </form>
-        </div>
 
         <% if (flash) { %>
         <div class="flash <%= flash.type %>"><%= flash.message %></div>
         <% } %>
+
+        <div class="divider"><h2>Overview</h2></div>
 
         <div class="status-grid">
           <article class="status-item <%= character.online ? 'up' : 'down' %>">
@@ -59,65 +70,90 @@
           </article>
         </div>
 
-        <section class="admin-block">
-          <h2>Position</h2>
-          <p>X: <strong><%= character.position.x %></strong> | Y: <strong><%= character.position.y %></strong> | Z: <strong><%= character.position.z %></strong></p>
-          <small>Gender: <%= character.gender %> | Created: <%= character.createdAt %></small>
-        </section>
+        <div class="divider"><h2>Position</h2></div>
+        <p>
+          X: <strong><%= character.position.x %></strong> &nbsp;&middot;&nbsp;
+          Y: <strong><%= character.position.y %></strong> &nbsp;&middot;&nbsp;
+          Z: <strong><%= character.position.z %></strong>
+        </p>
+        <small style="color:var(--text-dim)">
+          Gender: <%= character.gender %> &nbsp;&middot;&nbsp; Created: <%= character.createdAt %>
+        </small>
 
-        <section class="admin-block">
-          <h2>Inventory Summary</h2>
-          <div class="status-grid">
-            <article class="status-item up">
-              <h3>Total Items</h3>
-              <p><%= character.inventorySummary.totalItemCount %></p>
-              <small>All stacks combined</small>
-            </article>
-            <article class="status-item up">
-              <h3>Unique Entries</h3>
-              <p><%= character.inventorySummary.uniqueItemEntries %></p>
-              <small>Different item ids</small>
-            </article>
-            <article class="status-item up">
-              <h3>Inventory Slots Used</h3>
-              <p><%= character.inventorySummary.inventorySlotsUsed %></p>
-              <small>Across all bags</small>
-            </article>
-            <article class="status-item up">
-              <h3>Equipped Slots</h3>
-              <p><%= character.inventorySummary.equippedSlots %></p>
-              <small>Main equipment range</small>
-            </article>
-          </div>
-        </section>
+        <div class="divider"><h2>Inventory Summary</h2></div>
 
-        <section class="admin-block">
-          <h2>Top Inventory Items</h2>
-          <% if (character.topItems.length === 0) { %>
-          <div class="empty">No inventory data for this character.</div>
-          <% } else { %>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Item Entry</th>
-                  <th>Name</th>
-                  <th>Total Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                <% character.topItems.forEach((item) => { %>
-                <tr>
-                  <td><%= item.itemEntry %></td>
-                  <td><%= item.name %></td>
-                  <td><%= item.count %></td>
-                </tr>
-                <% }) %>
-              </tbody>
-            </table>
+        <div class="status-grid">
+          <article class="status-item up">
+            <h3>Total Items</h3>
+            <p><%= character.inventorySummary.totalItemCount %></p>
+            <small>All stacks combined</small>
+          </article>
+          <article class="status-item up">
+            <h3>Unique Entries</h3>
+            <p><%= character.inventorySummary.uniqueItemEntries %></p>
+            <small>Different item IDs</small>
+          </article>
+          <article class="status-item up">
+            <h3>Inventory Slots</h3>
+            <p><%= character.inventorySummary.inventorySlotsUsed %></p>
+            <small>Across all bags</small>
+          </article>
+          <article class="status-item up">
+            <h3>Equipped Slots</h3>
+            <p><%= character.inventorySummary.equippedSlots %></p>
+            <small>Main equipment range</small>
+          </article>
+        </div>
+
+        <div class="divider"><h2>Top Inventory Items</h2></div>
+
+        <% if (character.topItems.length === 0) { %>
+        <div class="empty">No inventory data for this character.</div>
+        <% } else { %>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Item Entry</th>
+                <th>Name</th>
+                <th>Total Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% character.topItems.forEach((item) => { %>
+              <tr>
+                <td><%= item.itemEntry %></td>
+                <td><%= item.name %></td>
+                <td><%= item.count %></td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <% } %>
+        <div class="divider"><h2>Teleport to City</h2></div>
+
+        <% if (character.online) { %>
+        <div class="empty">Character must be <strong>offline</strong> to teleport.</div>
+        <% } else { %>
+        <form method="post" action="/characters/<%= character.guid %>/teleport">
+          <% const factions = ['neutral', character.faction]; %>
+          <% const factionLabel = { neutral: 'Neutral', alliance: 'Alliance', horde: 'Horde' }; %>
+          <% factions.forEach((faction) => { %>
+          <%   const cities = teleportLocations.filter((l) => l.faction === faction); %>
+          <div class="city-group">
+            <p class="city-group-label <%= faction %>"><%= factionLabel[faction] %></p>
+            <div class="city-grid">
+              <% cities.forEach((city) => { %>
+              <button type="submit" name="location" value="<%= city.id %>" class="city-btn <%= faction %>">
+                <%= city.name %>
+              </button>
+              <% }) %>
+            </div>
           </div>
-          <% } %>
-        </section>
+          <% }) %>
+        </form>
+        <% } %>
       </section>
     </main>
   </body>

@@ -3,176 +3,180 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Admin Panel</title>
+    <title>Admin Panel &mdash; Bobek Industries</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <div class="aurora"></div>
-    <main class="shell reveal">
-      <section class="hero card">
-        <p class="kicker">GM/Admin</p>
-        <h1>Control Center</h1>
-        <p class="subtitle">Manage accounts and inspect online players.</p>
 
-        <div class="actions">
-          <a class="btn btn-ghost" href="/panel">Back To User Panel</a>
-          <a class="btn btn-ghost" href="/">Dashboard</a>
+    <nav class="site-nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/">
+          Bobek Industries
+          <span class="nav-sub">WotLK 3.3.5a</span>
+        </a>
+        <div class="nav-links">
+          <a class="btn btn-ghost" href="/panel">My Characters</a>
+          <a class="btn btn-ghost" href="/">Home</a>
           <form method="post" action="/logout">
-            <button class="btn btn-primary" type="submit">Log Out</button>
+            <button class="btn btn-danger" type="submit">Log Out</button>
           </form>
         </div>
+      </div>
+    </nav>
+
+    <main class="shell reveal">
+      <section class="card">
+        <p class="kicker">GM / Admin</p>
+        <h1>Control Center</h1>
+        <p class="subtitle">Manage accounts and inspect online players.</p>
 
         <% if (flash) { %>
         <div class="flash <%= flash.type %>"><%= flash.message %></div>
         <% } %>
 
-        <section class="admin-block">
-          <h2>Account Lookup</h2>
-          <form class="inline-form" method="get" action="/admin">
-            <input name="q" value="<%= searchQuery %>" placeholder="username or account id" />
-            <button class="btn btn-primary" type="submit">Search</button>
-          </form>
+        <div class="divider"><h2>Account Lookup</h2></div>
 
-          <% if (lookedUpAccounts.length === 0 && searchQuery) { %>
-          <div class="empty">No account matched your search.</div>
-          <% } %>
+        <form class="inline-form" method="get" action="/admin">
+          <input name="q" value="<%= searchQuery %>" placeholder="username or account id" />
+          <button class="btn btn-primary" type="submit">Search</button>
+        </form>
 
-          <% lookedUpAccounts.forEach((account) => { %>
-          <article class="admin-card">
-            <header>
-              <h3><%= account.username %> (#<%= account.id %>)</h3>
-              <span class="pill <%= account.online ? 'up' : 'down' %>">
-                <%= account.online ? 'Online' : 'Offline' %>
-              </span>
-            </header>
-            <p>
-              GM Level: <strong><%= account.gmlevel %></strong> | Locked:
-              <strong><%= account.locked ? 'Yes' : 'No' %></strong> | Banned:
-              <strong><%= account.activeBan ? 'Yes' : 'No' %></strong>
-            </p>
-            <small>
-              Joined: <%= account.joindate || '-' %> | Last login: <%= account.last_login || '-' %>
-            </small>
+        <% if (lookedUpAccounts.length === 0 && searchQuery) { %>
+        <div class="empty">No account matched your search.</div>
+        <% } %>
 
-            <div class="admin-actions-grid">
-              <form method="post" action="/admin/set-gm-level" class="admin-action">
-                <input type="hidden" name="account" value="<%= account.id %>" />
-                <label>
-                  Set GM Level (0-3)
-                  <input type="number" name="gmlevel" min="0" max="3" value="<%= account.gmlevel %>" required />
-                </label>
-                <label>
-                  Realm ID
-                  <input type="number" name="realmId" value="-1" required />
-                </label>
-                <button class="btn btn-primary" type="submit">Save GM</button>
-              </form>
+        <% lookedUpAccounts.forEach((account) => { %>
+        <article class="admin-card">
+          <header>
+            <h3><%= account.username %> (#<%= account.id %>)</h3>
+            <span class="pill <%= account.online ? 'up' : 'down' %>">
+              <%= account.online ? 'Online' : 'Offline' %>
+            </span>
+          </header>
+          <p>
+            GM Level: <strong><%= account.gmlevel %></strong> &nbsp;&middot;&nbsp;
+            Locked: <strong><%= account.locked ? 'Yes' : 'No' %></strong> &nbsp;&middot;&nbsp;
+            Banned: <strong><%= account.activeBan ? 'Yes' : 'No' %></strong>
+          </p>
+          <small>
+            Joined: <%= account.joindate || '-' %> &nbsp;&middot;&nbsp; Last login: <%= account.last_login || '-' %>
+          </small>
 
-              <form method="post" action="/admin/ban" class="admin-action">
-                <input type="hidden" name="account" value="<%= account.id %>" />
-                <label>
-                  Ban Minutes
-                  <input type="number" name="minutes" min="1" value="60" required />
-                </label>
-                <label>
-                  Reason
-                  <input name="reason" maxlength="255" value="Portal moderation" />
-                </label>
-                <button class="btn btn-danger" type="submit">Ban Account</button>
-              </form>
+          <div class="admin-actions-grid">
+            <form method="post" action="/admin/set-gm-level" class="admin-action">
+              <input type="hidden" name="account" value="<%= account.id %>" />
+              <label>
+                Set GM Level (0-3)
+                <input type="number" name="gmlevel" min="0" max="3" value="<%= account.gmlevel %>" required />
+              </label>
+              <label>
+                Realm ID
+                <input type="number" name="realmId" value="-1" required />
+              </label>
+              <button class="btn btn-primary" type="submit">Save GM</button>
+            </form>
 
-              <form method="post" action="/admin/unban" class="admin-action">
-                <input type="hidden" name="account" value="<%= account.id %>" />
-                <p>Remove all active bans for this account.</p>
-                <button class="btn btn-primary" type="submit">Unban</button>
-              </form>
+            <form method="post" action="/admin/ban" class="admin-action">
+              <input type="hidden" name="account" value="<%= account.id %>" />
+              <label>
+                Ban Minutes
+                <input type="number" name="minutes" min="1" value="60" required />
+              </label>
+              <label>
+                Reason
+                <input name="reason" maxlength="255" value="Portal moderation" />
+              </label>
+              <button class="btn btn-danger" type="submit">Ban Account</button>
+            </form>
 
-              <form method="post" action="/admin/toggle-lock" class="admin-action">
-                <input type="hidden" name="account" value="<%= account.id %>" />
-                <input type="hidden" name="locked" value="<%= account.locked ? '0' : '1' %>" />
-                <p><%= account.locked ? 'Unlock this account' : 'Lock this account' %></p>
-                <button class="btn btn-ghost" type="submit">
-                  <%= account.locked ? 'Unlock' : 'Lock' %>
-                </button>
-              </form>
-            </div>
-          </article>
-          <% }) %>
-        </section>
+            <form method="post" action="/admin/unban" class="admin-action">
+              <input type="hidden" name="account" value="<%= account.id %>" />
+              <p>Remove all active bans for this account.</p>
+              <button class="btn btn-primary" type="submit">Unban</button>
+            </form>
 
-        <section class="admin-block">
-          <h2>Online Players</h2>
-          <% if (onlinePlayers.length === 0) { %>
-          <div class="empty">No players are currently online.</div>
-          <% } %>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Character</th>
-                  <th>Level</th>
-                  <th>Race/Class</th>
-                  <th>Account</th>
-                  <th>Map/Zone</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <% onlinePlayers.forEach((player) => { %>
-                <tr>
-                  <td><%= player.name %> (#<%= player.guid %>)</td>
-                  <td><%= player.level %></td>
-                  <td><%= player.race %> <%= player.class %></td>
-                  <td><%= player.accountName %> (#<%= player.account %>)</td>
-                  <td><%= player.map %> / <%= player.zone %></td>
-                  <td>
-                    <a class="btn btn-ghost" href="/characters/<%= player.guid %>">View</a>
-                  </td>
-                </tr>
-                <% }) %>
-              </tbody>
-            </table>
+            <form method="post" action="/admin/toggle-lock" class="admin-action">
+              <input type="hidden" name="account" value="<%= account.id %>" />
+              <input type="hidden" name="locked" value="<%= account.locked ? '0' : '1' %>" />
+              <p><%= account.locked ? 'Unlock this account' : 'Lock this account' %></p>
+              <button class="btn btn-ghost" type="submit">
+                <%= account.locked ? 'Unlock' : 'Lock' %>
+              </button>
+            </form>
           </div>
-        </section>
-        <section class="admin-block">
-          <h2>Audit Log <span class="kicker">(last 50 actions)</span></h2>
-          <% if (auditLogs.length === 0) { %>
-          <div class="empty">No admin actions have been recorded yet.</div>
-          <% } %>
-          <% if (auditLogs.length > 0) { %>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Target</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                <% auditLogs.forEach((entry) => { %>
-                <tr>
-                  <td class="nowrap"><%= new Date(entry.ts).toISOString().replace('T',' ').slice(0,19) %> UTC</td>
-                  <td><%= entry.actor_user %></td>
-                  <td><code><%= entry.action %></code></td>
-                  <td><%= entry.target_user || '-' %></td>
-                  <td><small><%= entry.details || '' %></small></td>
-                </tr>
-                <% }) %>
-              </tbody>
-            </table>
-          </div>
-          <% } %>
-        </section>
+        </article>
+        <% }) %>
 
+        <div class="divider"><h2>Online Players</h2></div>
+
+        <% if (onlinePlayers.length === 0) { %>
+        <div class="empty">No players are currently online.</div>
+        <% } else { %>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Character</th>
+                <th>Level</th>
+                <th>Race / Class</th>
+                <th>Account</th>
+                <th>Map / Zone</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% onlinePlayers.forEach((player) => { %>
+              <tr>
+                <td><%= player.name %> (#<%= player.guid %>)</td>
+                <td><%= player.level %></td>
+                <td><%= player.race %> <%= player.class %></td>
+                <td><%= player.accountName %> (#<%= player.account %>)</td>
+                <td><%= player.map %> / <%= player.zone %></td>
+                <td><a class="btn btn-ghost" href="/characters/<%= player.guid %>">View</a></td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <% } %>
+
+        <div class="divider"><h2>Audit Log <span style="font-size:0.65rem;letter-spacing:0.14em;color:var(--text-dim)">(last 50)</span></h2></div>
+
+        <% if (auditLogs.length === 0) { %>
+        <div class="empty">No admin actions have been recorded yet.</div>
+        <% } else { %>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% auditLogs.forEach((entry) => { %>
+              <tr>
+                <td class="nowrap"><%= new Date(entry.ts).toISOString().replace('T',' ').slice(0,19) %> UTC</td>
+                <td><%= entry.actor_user %></td>
+                <td><code><%= entry.action %></code></td>
+                <td><%= entry.target_user || '-' %></td>
+                <td><small><%= entry.details || '' %></small></td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <% } %>
       </section>
     </main>
   </body>

@@ -93,6 +93,28 @@ const N = BigInt(
 );
 const G = 7n;
 
+const ALLIANCE_RACES = new Set([1, 3, 4, 7, 11]);
+const HORDE_RACES    = new Set([2, 5, 6, 8, 10]);
+
+function getCharacterFaction(raceId) {
+  if (ALLIANCE_RACES.has(raceId)) return "alliance";
+  if (HORDE_RACES.has(raceId))    return "horde";
+  return "neutral";
+}
+
+const TELEPORT_LOCATIONS = [
+  { id: "dalaran",      name: "Dalaran",        faction: "neutral",  mapId: 571, zoneId: 4395, x:  5804.15, y:   624.77, z:  647.77, o: 1.64 },
+  { id: "shattrath",    name: "Shattrath",       faction: "neutral",  mapId: 530, zoneId: 3703, x: -1841.27, y:  5279.18, z:  -12.42, o: 3.14 },
+  { id: "stormwind",    name: "Stormwind",       faction: "alliance", mapId: 0,   zoneId: 1519, x: -8833.38, y:   625.77, z:   94.14, o: 5.27 },
+  { id: "ironforge",    name: "Ironforge",       faction: "alliance", mapId: 0,   zoneId: 1537, x: -4948.45, y:  -905.43, z:  501.65, o: 0.30 },
+  { id: "darnassus",    name: "Darnassus",       faction: "alliance", mapId: 1,   zoneId: 1657, x:  9945.26, y:  2618.51, z: 1316.22, o: 0.00 },
+  { id: "exodar",       name: "The Exodar",      faction: "alliance", mapId: 530, zoneId: 3557, x: -3961.64, y:-13931.20, z:  100.62, o: 2.08 },
+  { id: "orgrimmar",    name: "Orgrimmar",       faction: "horde",    mapId: 1,   zoneId: 1637, x:  1676.35, y: -4331.08, z:   61.64, o: 3.14 },
+  { id: "undercity",    name: "Undercity",       faction: "horde",    mapId: 0,   zoneId: 1497, x:  1632.28, y:   240.44, z:  -62.08, o: 0.13 },
+  { id: "thunderbluff", name: "Thunder Bluff",   faction: "horde",    mapId: 1,   zoneId: 1638, x: -1282.73, y:   141.54, z:  131.33, o: 3.75 },
+  { id: "silvermoon",   name: "Silvermoon City", faction: "horde",    mapId: 530, zoneId: 3487, x:  9487.68, y: -7279.75, z:   14.72, o: 0.00 }
+];
+
 const raceById = {
   1: "Human",
   2: "Orc",
@@ -427,6 +449,33 @@ function checkTcp(name, host, checkPort, timeoutMs = 800) {
   });
 }
 
+async function getOnlineStats() {
+  try {
+    const [rows] = await charsPool.query(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN race IN (2, 5, 6, 8, 10) THEN 1 ELSE 0 END) AS horde,
+         SUM(CASE WHEN race IN (1, 3, 4, 7, 11) THEN 1 ELSE 0 END) AS alliance
+       FROM characters
+       WHERE online = 1`
+    );
+
+    const total    = Number(rows[0]?.total    || 0);
+    const horde    = Number(rows[0]?.horde    || 0);
+    const alliance = Number(rows[0]?.alliance || 0);
+
+    return {
+      total,
+      horde,
+      alliance,
+      hordePercent:    total > 0 ? Math.round(horde    / total * 100) : 0,
+      alliancePercent: total > 0 ? Math.round(alliance / total * 100) : 0
+    };
+  } catch (_error) {
+    return { total: 0, horde: 0, alliance: 0, hordePercent: 0, alliancePercent: 0 };
+  }
+}
+
 async function getServerStatus() {
   const [world, auth] = await Promise.all([
     checkTcp("Worldserver", process.env.WORLDSERVER_HOST || "ac-worldserver", 8085),
@@ -620,6 +669,7 @@ async function loadCharacterDetail(guid) {
     level: character.level,
     race: raceById[character.race] || `Race ${character.race}`,
     class: classById[character.class] || `Class ${character.class}`,
+    faction: getCharacterFaction(character.race),
     gender: Number(character.gender) === 0 ? "Male" : "Female",
     online: character.online === 1,
     money: formatMoney(character.money),
@@ -648,11 +698,15 @@ async function loadCharacterDetail(guid) {
 }
 
 app.get("/", async (req, res) => {
-  const status = await getServerStatus();
+  const [status, onlineStats] = await Promise.all([
+    getServerStatus(),
+    getOnlineStats()
+  ]);
   const flash = consumeFlash(req);
 
   res.render("index", {
     status,
+    onlineStats,
     flash,
     user: req.session.user || null
   });
@@ -1215,7 +1269,8 @@ app.get("/characters/:guid", requireLogin, async (req, res) => {
       user: req.session.user,
       character,
       flash: consumeFlash(req),
-      isAdmin
+      isAdmin,
+      teleportLocations: TELEPORT_LOCATIONS
     });
   } catch (error) {
     req.session.flash = {
@@ -1224,6 +1279,83 @@ app.get("/characters/:guid", requireLogin, async (req, res) => {
     };
     return res.redirect("/panel");
   }
+});
+
+app.post("/characters/:guid/teleport", requireLogin, async (req, res) => {
+  const guid = Number(req.params.guid);
+  if (!Number.isInteger(guid) || guid <= 0) {
+    req.session.flash = { type: "error", message: "Invalid character id." };
+    return res.redirect("/panel");
+  }
+
+  const locationId = (req.body.location || "").trim();
+  const location = TELEPORT_LOCATIONS.find((l) => l.id === locationId);
+  if (!location) {
+    req.session.flash = { type: "error", message: "Unknown teleport location." };
+    return res.redirect(`/characters/${guid}`);
+  }
+
+  try {
+    const [charRows] = await charsPool.query(
+      "SELECT guid, account, name, online FROM characters WHERE guid = ? AND deleteDate IS NULL LIMIT 1",
+      [guid]
+    );
+
+    if (charRows.length === 0) {
+      req.session.flash = { type: "error", message: "Character not found." };
+      return res.redirect("/panel");
+    }
+
+    const char = charRows[0];
+    const isAdmin = req.session.user.gmlevel >= 3;
+
+    if (!isAdmin && char.account !== req.session.user.accountId) {
+      req.session.flash = { type: "error", message: "You do not have access to this character." };
+      return res.redirect("/panel");
+    }
+
+    const charFaction = getCharacterFaction(char.race);
+    if (location.faction !== "neutral" && location.faction !== charFaction) {
+      req.session.flash = { type: "error", message: "That city is not available for your character's faction." };
+      return res.redirect(`/characters/${guid}`);
+    }
+
+    if (char.online) {
+      req.session.flash = { type: "error", message: "Character must be offline to teleport." };
+      return res.redirect(`/characters/${guid}`);
+    }
+
+    await charsPool.query(
+      `UPDATE characters
+       SET map = ?, zone = ?, position_x = ?, position_y = ?, position_z = ?, orientation = ?,
+           trans_x = 0, trans_y = 0, trans_z = 0, trans_o = 0, transguid = 0
+       WHERE guid = ? AND online = 0`,
+      [location.mapId, location.zoneId, location.x, location.y, location.z, location.o, guid]
+    );
+
+    if (isAdmin && char.account !== req.session.user.accountId) {
+      await writeAudit(
+        req.session.user.accountId,
+        req.session.user.username,
+        "teleport",
+        char.account,
+        char.name,
+        `location=${location.id} map=${location.mapId}`
+      );
+    }
+
+    req.session.flash = {
+      type: "success",
+      message: `${char.name} will appear in ${location.name} on next login.`
+    };
+  } catch (error) {
+    req.session.flash = {
+      type: "error",
+      message: `Teleport failed: ${error.code || "db_error"}`
+    };
+  }
+
+  return res.redirect(`/characters/${guid}`);
 });
 
 app.get("/admin", requireAdmin, async (req, res) => {
