@@ -1297,7 +1297,7 @@ app.post("/characters/:guid/teleport", requireLogin, async (req, res) => {
 
   try {
     const [charRows] = await charsPool.query(
-      "SELECT guid, account, name, online FROM characters WHERE guid = ? AND deleteDate IS NULL LIMIT 1",
+      "SELECT guid, account, name, race, online FROM characters WHERE guid = ? AND deleteDate IS NULL LIMIT 1",
       [guid]
     );
 
