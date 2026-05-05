@@ -88,6 +88,12 @@ if (mailConfig.enabled) {
   }
 }
 
+const discordUrl    = process.env.DISCORD_URL   || portalConfig.discordUrl  || "";
+const forumUrl      = process.env.FORUM_URL     || portalConfig.forumUrl    || "";
+const downloadUrl   = process.env.DOWNLOAD_URL  || portalConfig.downloadUrl || "";
+const realmlistHost = process.env.REALMLIST_HOST || portalConfig.realmlistHost || "";
+const downloadFile  = process.env.DOWNLOAD_FILE || portalConfig.downloadFile || "";
+
 const N = BigInt(
   "0x894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7"
 );
@@ -158,6 +164,13 @@ app.use(
     }
   })
 );
+
+app.use((req, res, next) => {
+  res.locals.discordUrl = discordUrl;
+  res.locals.forumUrl = forumUrl;
+  res.locals.downloadUrl = downloadUrl;
+  next();
+});
 
 let authPool;
 let charsPool;
@@ -476,6 +489,71 @@ async function getOnlineStats() {
   }
 }
 
+async function getServerMetrics() {
+  let uptimeSeconds = 0;
+  let maxPlayers = 0;
+  let gmOnline = 0;
+
+  try {
+    const [uptimeRows] = await authPool.query(
+      "SELECT uptime, maxplayers FROM uptime ORDER BY starttime DESC LIMIT 1"
+    );
+    if (uptimeRows.length > 0) {
+      uptimeSeconds = Number(uptimeRows[0].uptime || 0);
+      maxPlayers = Number(uptimeRows[0].maxplayers || 0);
+    }
+  } catch (_) {}
+
+  try {
+    const [gmRows] = await charsPool.query(
+      `SELECT COUNT(*) AS gm_count
+       FROM characters c
+       JOIN ${authDbName}.account_access aa ON aa.id = c.account AND aa.gmlevel >= 1
+       WHERE c.online = 1`
+    );
+    gmOnline = Number(gmRows[0]?.gm_count || 0);
+  } catch (_) {}
+
+  return {
+    uptimeSeconds,
+    uptimeFormatted: formatSeconds(uptimeSeconds),
+    maxPlayers,
+    gmOnline
+  };
+}
+
+async function getTopPvpPlayers() {
+  try {
+    const [rows] = await charsPool.query(
+      `SELECT name, race, class, level, totalKills
+       FROM characters
+       WHERE deleteDate IS NULL AND totalKills > 0
+       ORDER BY totalKills DESC
+       LIMIT 10`
+    );
+    return rows.map((r) => ({
+      name: r.name,
+      race: raceById[r.race] || `Race ${r.race}`,
+      class: classById[r.class] || `Class ${r.class}`,
+      level: r.level,
+      kills: Number(r.totalKills || 0)
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
+async function getLatestNews() {
+  try {
+    const [rows] = await authPool.query(
+      "SELECT id, created_at, title, body, author FROM portal_news ORDER BY created_at DESC LIMIT 5"
+    );
+    return rows;
+  } catch (_) {
+    return [];
+  }
+}
+
 async function getServerStatus() {
   const [world, auth] = await Promise.all([
     checkTcp("Worldserver", process.env.WORLDSERVER_HOST || "ac-worldserver", 8085),
@@ -698,18 +776,34 @@ async function loadCharacterDetail(guid) {
 }
 
 app.get("/", async (req, res) => {
-  const [status, onlineStats] = await Promise.all([
+  const [status, onlineStats, serverMetrics, topPvp, latestNews] = await Promise.all([
     getServerStatus(),
-    getOnlineStats()
+    getOnlineStats(),
+    getServerMetrics(),
+    getTopPvpPlayers(),
+    getLatestNews()
   ]);
   const flash = consumeFlash(req);
 
   res.render("index", {
     status,
     onlineStats,
+    serverMetrics,
+    topPvp,
+    latestNews,
     flash,
-    user: req.session.user || null
+    user: req.session.user || null,
+    discordUrl,
+    forumUrl,
+    downloadUrl,
+    realmlistHost
   });
+});
+
+app.get("/download", (req, res) => {
+  if (!downloadFile) return res.status(404).send("Download not configured.");
+  if (!fs.existsSync(downloadFile)) return res.status(404).send("Download file not found.");
+  res.download(downloadFile, "World of Warcraft 3.3.5a.zip");
 });
 
 app.post("/reset-password", async (req, res) => {
@@ -1433,12 +1527,17 @@ app.get("/admin", requireAdmin, async (req, res) => {
      LIMIT 50`
   );
 
+  const [newsRows] = await authPool.query(
+    "SELECT id, created_at, title, author FROM portal_news ORDER BY created_at DESC LIMIT 20"
+  );
+
   return res.render("admin", {
     user: req.session.user,
     flash: consumeFlash(req),
     searchQuery: rawQuery,
     lookedUpAccounts,
     auditLogs: auditRows,
+    newsItems: newsRows,
     onlinePlayers: onlinePlayers.map((player) => ({
       guid: player.guid,
       name: player.name,
@@ -1593,6 +1692,50 @@ app.post("/admin/toggle-lock", requireAdmin, async (req, res) => {
   };
   return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
 });
+
+app.post("/admin/news/post", requireAdmin, async (req, res) => {
+  const title = (req.body.title || "").trim();
+  const body  = (req.body.body  || "").trim();
+
+  if (!title || !body) {
+    req.session.flash = { type: "error", message: "Title and body are required." };
+    return res.redirect("/admin");
+  }
+
+  await authPool.query(
+    "INSERT INTO portal_news (title, body, author) VALUES (?, ?, ?)",
+    [title.substring(0, 200), body, req.session.user.username]
+  );
+
+  req.session.flash = { type: "success", message: "News post created." };
+  return res.redirect("/admin");
+});
+
+app.post("/admin/news/delete", requireAdmin, async (req, res) => {
+  const id = Number(req.body.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    req.session.flash = { type: "error", message: "Invalid news id." };
+    return res.redirect("/admin");
+  }
+
+  await authPool.query("DELETE FROM portal_news WHERE id = ?", [id]);
+  req.session.flash = { type: "success", message: "News post deleted." };
+  return res.redirect("/admin");
+});
+
+async function createNewsTable() {
+  await authPool.query(`
+    CREATE TABLE IF NOT EXISTS portal_news (
+      id         INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+      created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      title      VARCHAR(200)    NOT NULL,
+      body       TEXT            NOT NULL,
+      author     VARCHAR(32)     NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
 
 async function createAuditTable() {
   await authPool.query(`
@@ -1755,6 +1898,7 @@ async function start() {
   await createAuditTable();
   await createEmailVerificationTable();
   await createPasswordResetTable();
+  await createNewsTable();
   await ensureUniqueAccountEmailConstraint();
 
   if (mailTransport) {

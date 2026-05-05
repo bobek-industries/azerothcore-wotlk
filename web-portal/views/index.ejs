@@ -22,6 +22,15 @@
           <span class="nav-sub">WotLK 3.3.5a</span>
         </a>
         <div class="nav-links">
+          <% if (discordUrl) { %>
+          <a class="btn btn-ghost" href="<%= discordUrl %>" target="_blank" rel="noopener noreferrer">Discord</a>
+          <% } %>
+          <% if (forumUrl) { %>
+          <a class="btn btn-ghost" href="<%= forumUrl %>" target="_blank" rel="noopener noreferrer">Forum</a>
+          <% } %>
+          <% if (downloadUrl) { %>
+          <a class="btn btn-ghost" href="<%= downloadUrl %>" target="_blank" rel="noopener noreferrer">Download</a>
+          <% } %>
           <% if (user) { %>
           <a class="btn btn-ghost" href="/panel">My Characters</a>
           <% if (user.gmlevel >= 3) { %>
@@ -32,81 +41,101 @@
           </form>
           <% } else { %>
           <button class="btn btn-ghost" type="button" data-target="login">Login</button>
-          <button class="btn btn-primary" type="button" data-target="register">Register</button>
+          <button class="btn btn-primary" type="button" data-target="register">Create Account</button>
           <% } %>
         </div>
       </div>
     </nav>
 
-    <main class="shell reveal">
-      <section class="card">
-        <div class="realm-badge">
-          <span>Wrath of the Lich King</span>
-          <small>&bull; Patch 3.3.5a</small>
-        </div>
-        <p class="kicker">Bobek Industries</p>
-        <h1>Welcome to Azeroth</h1>
-        <p class="subtitle">Register an account, log in, and track your adventurers.</p>
-
-        <div class="divider" style="margin-top:1.8rem">
-          <h2>Server Status</h2>
-        </div>
-
-        <div class="status-grid">
-          <% status.forEach((item) => { %>
-          <article class="status-item <%= item.online ? 'up' : 'down' %>">
-            <h3><%= item.name %></h3>
-            <p><%= item.online ? 'Online' : 'Offline' %></p>
-            <small><%= item.detail %></small>
-          </article>
-          <% }) %>
-        </div>
-
-        <div class="divider"><h2>Players Online</h2></div>
-
-        <div class="online-stats">
-          <div class="online-count">
-            <span class="count-number"><%= onlineStats.total %></span>
-            <span class="count-label">Online</span>
-          </div>
-
-          <div class="faction-bar-wrap">
-            <div class="faction-labels">
-              <span class="faction-label alliance">
-                <span class="dot"></span>
-                Alliance &mdash; <%= onlineStats.alliance %> (<%= onlineStats.alliancePercent %>%)
-              </span>
-              <span class="faction-label horde">
-                Horde &mdash; <%= onlineStats.horde %> (<%= onlineStats.hordePercent %>%)
-                <span class="dot"></span>
-              </span>
+    <main class="shell-home reveal">
+      <!-- MAIN CARD: STATUS + AUTH -->
+      <section class="card home-main-card">
+          <div class="divider" style="margin-top:0">
+              <h2>Server Status</h2>
             </div>
-            <% if (onlineStats.total > 0) { %>
-            <div class="faction-bar">
-              <div class="bar-alliance" style="width:<%= onlineStats.alliancePercent %>%"></div>
-              <div class="bar-horde"    style="width:<%= onlineStats.hordePercent %>%"></div>
-            </div>
-            <% } else { %>
-            <div class="faction-bar-empty"></div>
-            <% } %>
-          </div>
-        </div>
 
+            <div class="status-grid">
+              <% status.forEach((item) => { %>
+              <article class="status-item <%= item.online ? 'up' : 'down' %>">
+                <h3><%= item.name %></h3>
+                <p><%= item.online ? 'Online' : 'Offline' %></p>
+                <small><%= item.detail %></small>
+              </article>
+              <% }) %>
+            </div>
+
+            <div class="metrics-row">
+              <div class="metric-chip">
+                <span class="metric-value"><%= serverMetrics.uptimeFormatted || '&mdash;' %></span>
+                <span class="metric-label">Uptime</span>
+              </div>
+              <div class="metric-chip">
+                <span class="metric-value"><%= serverMetrics.maxPlayers %></span>
+                <span class="metric-label">Peak Players</span>
+              </div>
+              <div class="metric-chip">
+                <span class="metric-value"><%= serverMetrics.gmOnline %></span>
+                <span class="metric-label">GMs Online</span>
+              </div>
+            </div>
+
+            <div class="divider"><h2>Players Online</h2></div>
+
+            <div class="online-stats">
+              <div class="online-count">
+                <span class="count-number"><%= onlineStats.total %></span>
+                <span class="count-label">Online</span>
+              </div>
+
+              <div class="faction-bar-wrap">
+                <div class="faction-labels">
+                  <span class="faction-label alliance">
+                    <span class="dot"></span>
+                    Alliance &mdash; <%= onlineStats.alliance %> (<%= onlineStats.alliancePercent %>%)
+                  </span>
+                  <span class="faction-label horde">
+                    Horde &mdash; <%= onlineStats.horde %> (<%= onlineStats.hordePercent %>%)
+                    <span class="dot"></span>
+                  </span>
+                </div>
+                <% if (onlineStats.total > 0) { %>
+                <div class="faction-bar">
+                  <div class="bar-alliance" style="width:<%= onlineStats.alliancePercent %>%"></div>
+                  <div class="bar-horde"    style="width:<%= onlineStats.hordePercent %>%"></div>
+                </div>
+                <% } else { %>
+                <div class="faction-bar-empty"></div>
+                <% } %>
+              </div>
+            </div>
+      </section>
+
+      <!-- AUTH SECTION -->
+      <% if (!user) { %>
+      <section id="auth-section" class="card hidden">
         <% if (flash) { %>
         <div class="flash <%= flash.type %>"><%= flash.message %></div>
         <% } %>
 
-        <% if (user) { %>
-        <div class="actions">
-          <a href="/panel" class="btn btn-primary">Open Character Panel</a>
-          <% if (user.gmlevel >= 3) { %>
-          <a href="/admin" class="btn btn-ghost">Admin Panel</a>
-          <% } %>
+        <div class="actions" style="margin-top:0;margin-bottom:1.2rem">
+          <button class="btn btn-primary panel-tab" data-target="login">Sign In</button>
+          <button class="btn btn-ghost panel-tab" data-target="register">Register</button>
         </div>
-        <% } else { %>
-        <section class="forms">
+
+        <div class="forms" style="margin-top:0">
+          <form id="login" class="panel" method="post" action="/login">
+            <label>
+              Username
+              <input name="username" maxlength="16" required />
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" maxlength="16" required />
+            </label>
+            <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+          </form>
+
           <form id="register" class="panel hidden" method="post" action="/register">
-            <div class="divider"><h2>Create Account</h2></div>
             <label>
               Username
               <input name="username" maxlength="16" required />
@@ -119,24 +148,10 @@
               Password
               <input name="password" type="password" maxlength="16" required />
             </label>
-            <button type="submit" class="btn btn-primary">Register Now</button>
-          </form>
-
-          <form id="login" class="panel hidden" method="post" action="/login">
-            <div class="divider"><h2>Account Login</h2></div>
-            <label>
-              Username
-              <input name="username" maxlength="16" required />
-            </label>
-            <label>
-              Password
-              <input name="password" type="password" maxlength="16" required />
-            </label>
-            <button type="submit" class="btn btn-primary">Login</button>
+            <button type="submit" class="btn btn-primary btn-full">Create Account</button>
           </form>
 
           <form id="reset" class="panel hidden" method="post" action="/reset-password">
-            <div class="divider"><h2>Password Reset</h2></div>
             <label>
               Username
               <input name="username" maxlength="16" required />
@@ -145,29 +160,159 @@
               Email
               <input name="email" type="email" maxlength="255" required />
             </label>
-            <button type="submit" class="btn btn-primary">Send Reset Link</button>
+            <button type="submit" class="btn btn-primary btn-full">Send Reset Link</button>
           </form>
-        </section>
+        </div>
 
         <div class="link-row">
-          <button class="text-link" type="button" data-target="reset">
-            Forgot your password?
-          </button>
+          <button class="text-link" type="button" data-target="reset">Forgot your password?</button>
         </div>
-        <% } %>
       </section>
+      <% } %>
+
+      <!-- NEWS + LEADERBOARD GRID -->
+      <% if (latestNews.length > 0 || topPvp.length > 0) { %>
+      <div class="home-grid">
+
+        <% if (latestNews.length > 0) { %>
+        <section class="card news-section">
+          <div class="divider" style="margin-top:0"><h2>Latest News</h2></div>
+          <% latestNews.forEach((post) => { %>
+          <article class="news-post">
+            <div class="news-meta">
+              <time class="news-date"><%=
+                new Date(post.created_at).toLocaleDateString("en-US", {
+                  month: "short", day: "numeric", year: "numeric"
+                })
+              %></time>
+              <span class="news-author">by <%= post.author %></span>
+            </div>
+            <h3 class="news-title"><%= post.title %></h3>
+            <p class="news-body"><%= post.body %></p>
+          </article>
+          <% }) %>
+        </section>
+        <% } %>
+
+        <% if (topPvp.length > 0) { %>
+        <section class="card leaderboard-section">
+          <div class="divider" style="margin-top:0"><h2>Top Honorable Kills</h2></div>
+          <ol class="leaderboard-list">
+            <% topPvp.forEach((player, i) => { %>
+            <li class="leaderboard-row <%= i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : '' %>">
+              <span class="rank-num"><%= i + 1 %></span>
+              <div class="rank-info">
+                <strong class="rank-name"><%= player.name %></strong>
+                <small class="rank-detail"><%= player.race %> <%= player.class %> &bull; Lvl <%= player.level %></small>
+              </div>
+              <span class="rank-kills"><%= player.kills.toLocaleString() %></span>
+            </li>
+            <% }) %>
+          </ol>
+        </section>
+        <% } %>
+
+      </div>
+      <% } %>
+
+      <!-- HOW TO CONNECT -->
+      <section class="card how-to-card">
+        <div class="how-to-summary-text" style="margin-bottom:1.8rem">
+          <span class="how-to-title">How to Connect</span>
+          <span class="how-to-sub">Get started in 3 easy steps</span>
+        </div>
+        <div class="how-to-steps">
+            <div class="how-to-step">
+              <span class="step-num">1</span>
+              <div class="step-content">
+                <strong>Create an Account</strong>
+                <p>Register on this page with your desired username, email, and password.</p>
+                <% if (!user) { %>
+                <button class="btn btn-primary" type="button" data-target="register">Register Now</button>
+                <% } %>
+              </div>
+            </div>
+            <div class="how-to-step">
+              <span class="step-num">2</span>
+              <div class="step-content">
+                <strong>Download the Client</strong>
+                <p>You need the World of Warcraft 3.3.5a client to play.</p>
+                <% if (downloadUrl) { %>
+                <a class="btn btn-ghost" href="<%= downloadUrl %>" target="_blank" rel="noopener noreferrer">Download Client</a>
+                <% } else { %>
+                <p><em>Contact an administrator for the download link.</em></p>
+                <% } %>
+              </div>
+            </div>
+            <div class="how-to-step">
+              <span class="step-num">3</span>
+              <div class="step-content">
+                <strong>Set the Realmlist</strong>
+                <p>Open <code>Data/enUS/realmlist.wtf</code> in your WoW folder and set:</p>
+                <pre class="realmlist-pre">set realmlist <%= realmlistHost || 'your.server.address' %></pre>
+                <p>Launch <code>Wow.exe</code>, log in with your portal credentials, and enter the world!</p>
+              </div>
+            </div>
+        </div>
+      </section>
+
     </main>
 
-    <script>
-      const buttons = document.querySelectorAll("[data-target]");
-      const forms   = document.querySelectorAll(".panel");
+    <!-- FOOTER -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          Bobek Industries
+          <span class="footer-patch">WotLK 3.3.5a</span>
+        </div>
+        <p class="footer-legal">Not affiliated with Blizzard Entertainment. World of Warcraft&trade; is a registered trademark of Blizzard Entertainment, Inc.</p>
+      </div>
+    </footer>
 
-      buttons.forEach((btn) => {
-        btn.addEventListener("click", () => {
-          forms.forEach((f) => f.classList.add("hidden"));
-          document.getElementById(btn.dataset.target).classList.remove("hidden");
+    <script>
+      const authSection = document.getElementById("auth-section");
+      const allPanels   = document.querySelectorAll(".panel");
+      const panelTabs   = document.querySelectorAll(".panel-tab");
+
+      function activatePanel(targetId) {
+        allPanels.forEach((f) => f.classList.add("hidden"));
+        const el = document.getElementById(targetId);
+        if (el) el.classList.remove("hidden");
+      }
+
+      function activatePanelTab(targetId) {
+        panelTabs.forEach((t) => {
+          t.classList.toggle("btn-primary", t.dataset.target === targetId);
+          t.classList.toggle("btn-ghost",   t.dataset.target !== targetId);
+        });
+      }
+
+      function showAuthSection(targetId) {
+        if (!authSection) return;
+        authSection.classList.remove("hidden");
+        activatePanel(targetId);
+        activatePanelTab(targetId);
+        authSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      panelTabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          activatePanel(tab.dataset.target);
+          activatePanelTab(tab.dataset.target);
         });
       });
+
+      document.querySelectorAll(".text-link[data-target]").forEach((btn) => {
+        btn.addEventListener("click", () => activatePanel(btn.dataset.target));
+      });
+
+      document.querySelectorAll("[data-target]:not(.panel-tab):not(.text-link)").forEach((btn) => {
+        btn.addEventListener("click", () => showAuthSection(btn.dataset.target));
+      });
+
+      <% if (flash && !user) { %>
+      showAuthSection("login");
+      <% } %>
     </script>
   </body>
 </html>
