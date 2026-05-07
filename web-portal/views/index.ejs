@@ -3,7 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Bobek Industries &mdash; Realm Portal</title>
+    <title><%= siteName %> &mdash; Realm Portal</title>
+    <meta name="description" content="<%= siteDescription %>" />
+    <meta name="robots" content="index, follow" />
+    <% if (siteUrl) { %>
+    <link rel="canonical" href="<%= siteUrl %>" />
+    <% } %>
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="<%= siteName %> &mdash; WoW WotLK 3.3.5a Private Server" />
+    <meta property="og:description" content="<%= siteDescription %>" />
+    <% if (siteUrl) { %><meta property="og:url" content="<%= siteUrl %>" /><% } %>
+    <% if (siteImage) { %><meta property="og:image" content="<%= siteImage %>" /><% } %>
+    <meta property="og:site_name" content="<%= siteName %>" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary<% if (siteImage) { %>_large_image<% } %>" />
+    <meta name="twitter:title" content="<%= siteName %> &mdash; WoW WotLK 3.3.5a Private Server" />
+    <meta name="twitter:description" content="<%= siteDescription %>" />
+    <% if (siteImage) { %><meta name="twitter:image" content="<%= siteImage %>" /><% } %>
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "<%= siteName %>",
+      "description": "<%= siteDescription %>"<% if (siteUrl) { %>,
+      "url": "<%= siteUrl %>"<% } %><% if (discordUrl) { %>,
+      "sameAs": ["<%= discordUrl %>"]<% } %>
+    }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

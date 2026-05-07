@@ -93,6 +93,10 @@ const forumUrl      = process.env.FORUM_URL     || portalConfig.forumUrl    || "
 const downloadUrl   = process.env.DOWNLOAD_URL  || portalConfig.downloadUrl || "";
 const realmlistHost = process.env.REALMLIST_HOST || portalConfig.realmlistHost || "";
 const downloadFile  = process.env.DOWNLOAD_FILE || portalConfig.downloadFile || "";
+const siteUrl       = process.env.SITE_URL      || portalConfig.siteUrl     || "";
+const siteName      = process.env.SITE_NAME     || portalConfig.siteName    || "Bobek Industries";
+const siteDescription = process.env.SITE_DESCRIPTION || portalConfig.siteDescription || "A free World of Warcraft 3.3.5a (Wrath of the Lich King) private server. Join our community and start your adventure today!";
+const siteImage     = process.env.SITE_IMAGE    || portalConfig.siteImage   || "";
 
 const N = BigInt(
   "0x894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7"
@@ -796,8 +800,38 @@ app.get("/", async (req, res) => {
     discordUrl,
     forumUrl,
     downloadUrl,
-    realmlistHost
+    realmlistHost,
+    siteUrl,
+    siteName,
+    siteDescription,
+    siteImage
   });
+});
+
+app.get("/robots.txt", (req, res) => {
+  const base = siteUrl ? siteUrl.replace(/\/$/, "") : "";
+  res.type("text/plain");
+  res.send(
+    "User-agent: *\n" +
+    "Allow: /\n" +
+    "Disallow: /panel\n" +
+    "Disallow: /admin\n" +
+    "Disallow: /character\n" +
+    (base ? `\nSitemap: ${base}/sitemap.xml\n` : "")
+  );
+});
+
+app.get("/sitemap.xml", (req, res) => {
+  const base = siteUrl ? siteUrl.replace(/\/$/, "") : "";
+  if (!base) return res.status(404).send("Sitemap not available: SITE_URL not configured.");
+  const now = new Date().toISOString().split("T")[0];
+  res.type("application/xml");
+  res.send(
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    `  <url><loc>${base}/</loc><lastmod>${now}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>\n` +
+    `</urlset>`
+  );
 });
 
 app.get("/download", (req, res) => {
