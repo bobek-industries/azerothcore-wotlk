@@ -49,11 +49,43 @@ clone_db_if_empty() {
     "${MYSQLDUMP[@]}" "${src_db}" | "${MYSQL[@]}" "${dst_db}"
 }
 
+  seed_tutorial_flags() {
+    local char_db="$1"
+
+    echo "[realms-init] seeding tutorial flags in ${char_db}"
+    sql "
+  INSERT INTO ${char_db}.account_tutorial
+    (accountId, tut0, tut1, tut2, tut3, tut4, tut5, tut6, tut7)
+  SELECT
+    a.id,
+    4294967295,
+    4294967295,
+    4294967295,
+    4294967295,
+    4294967295,
+    4294967295,
+    4294967295,
+    4294967295
+  FROM ${AUTH_DB}.account a
+  ON DUPLICATE KEY UPDATE
+    tut0 = VALUES(tut0),
+    tut1 = VALUES(tut1),
+    tut2 = VALUES(tut2),
+    tut3 = VALUES(tut3),
+    tut4 = VALUES(tut4),
+    tut5 = VALUES(tut5),
+    tut6 = VALUES(tut6),
+    tut7 = VALUES(tut7);
+  "
+  }
+
 echo "[realms-init] ensuring realm databases exist"
 clone_db_if_empty "${BASE_WORLD_DB}" "${PVP_WORLD_DB}"
 clone_db_if_empty "${BASE_CHAR_DB}" "${PVP_CHAR_DB}"
 clone_db_if_empty "${BASE_WORLD_DB}" "${PVE_WORLD_DB}"
 clone_db_if_empty "${BASE_CHAR_DB}" "${PVE_CHAR_DB}"
+seed_tutorial_flags "${PVP_CHAR_DB}"
+seed_tutorial_flags "${PVE_CHAR_DB}"
 
 echo "[realms-init] upserting realmlist entries"
 sql "
