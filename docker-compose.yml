@@ -205,6 +205,140 @@ services:
       ac-database:
         condition: service_healthy
 
+  ac-realms-init:
+    container_name: ac-realms-init
+    image: acore/ac-wotlk-worldserver:${DOCKER_IMAGE_TAG:-master}
+    entrypoint: ["/usr/bin/env", "bash", "/azerothcore/apps/docker/realms-init.sh"]
+    environment:
+      DB_HOST: ac-database
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: ${DOCKER_DB_ROOT_PASSWORD:-password}
+      AUTH_DB: acore_auth
+      BASE_WORLD_DB: acore_world
+      BASE_CHAR_DB: acore_characters
+      PVP_WORLD_DB: acore_world_pvp
+      PVP_CHAR_DB: acore_characters_pvp
+      PVE_WORLD_DB: acore_world_pve
+      PVE_CHAR_DB: acore_characters_pve
+      REALM_EXTERNAL_ADDRESS: ${DOCKER_REALM_EXTERNAL_ADDRESS:-wow-wotlk.bobek-industries.org}
+      REALM_LOCAL_ADDRESS: ${DOCKER_REALM_LOCAL_ADDRESS:-127.0.0.1}
+      REALM_LOCAL_SUBNET_MASK: ${DOCKER_REALM_LOCAL_SUBNET_MASK:-255.255.255.0}
+    volumes:
+      - ./apps/docker/realms-init.sh:/azerothcore/apps/docker/realms-init.sh:ro
+    networks:
+      - ac-network
+    restart: "no"
+    depends_on:
+      ac-database:
+        condition: service_healthy
+      ac-db-import:
+        condition: service_completed_successfully
+
+  ac-worldserver-pvp:
+    container_name: ac-worldserver-pvp
+    image: acore/ac-wotlk-worldserver:${DOCKER_IMAGE_TAG:-master}
+    command: ["worldserver", "-c", "/azerothcore/env/dist/etc/worldserver.pvp.conf"]
+    networks:
+      - ac-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    env_file:
+        ${DOCKER_AC_ENV_FILE:-conf/dist/env.ac}
+    environment:
+      AC_DATA_DIR: "/azerothcore/env/dist/data"
+      AC_LOGS_DIR: "/azerothcore/env/dist/logs"
+      AC_LOGIN_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_auth"
+      AC_WORLD_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_world_pvp"
+      AC_CHARACTER_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_characters_pvp"
+    ports:
+      - ${DOCKER_WORLD_PVP_EXTERNAL_PORT:-8086}:8085
+      - ${DOCKER_SOAP_PVP_EXTERNAL_PORT:-7879}:7878
+    volumes:
+      - ${DOCKER_VOL_ETC:-./env/dist/etc}:/azerothcore/env/dist/etc
+      - ${DOCKER_VOL_LOGS:-./env/dist/logs}:/azerothcore/env/dist/logs:delegated
+      - ${DOCKER_VOL_DATA:-ac-client-data}:/azerothcore/env/dist/data/:ro
+      - ./env/user/realms/worldserver.pvp.conf:/azerothcore/env/dist/etc/worldserver.pvp.conf:ro
+    depends_on:
+      ac-database:
+        condition: service_healthy
+      ac-realms-init:
+        condition: service_completed_successfully
+      ac-client-data-init:
+        condition: service_completed_successfully
+
+  ac-worldserver-pve:
+    container_name: ac-worldserver-pve
+    image: acore/ac-wotlk-worldserver:${DOCKER_IMAGE_TAG:-master}
+    command: ["worldserver", "-c", "/azerothcore/env/dist/etc/worldserver.pve.conf"]
+    networks:
+      - ac-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    env_file:
+        ${DOCKER_AC_ENV_FILE:-conf/dist/env.ac}
+    environment:
+      AC_DATA_DIR: "/azerothcore/env/dist/data"
+      AC_LOGS_DIR: "/azerothcore/env/dist/logs"
+      AC_LOGIN_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_auth"
+      AC_WORLD_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_world_pve"
+      AC_CHARACTER_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_characters_pve"
+    ports:
+      - ${DOCKER_WORLD_PVE_EXTERNAL_PORT:-8087}:8085
+      - ${DOCKER_SOAP_PVE_EXTERNAL_PORT:-7880}:7878
+    volumes:
+      - ${DOCKER_VOL_ETC:-./env/dist/etc}:/azerothcore/env/dist/etc
+      - ${DOCKER_VOL_LOGS:-./env/dist/logs}:/azerothcore/env/dist/logs:delegated
+      - ${DOCKER_VOL_DATA:-ac-client-data}:/azerothcore/env/dist/data/:ro
+      - ./env/user/realms/worldserver.pve.conf:/azerothcore/env/dist/etc/worldserver.pve.conf:ro
+    depends_on:
+      ac-database:
+        condition: service_healthy
+      ac-realms-init:
+        condition: service_completed_successfully
+      ac-client-data-init:
+        condition: service_completed_successfully
+
+  ac-web-portal:
+    container_name: ac-web-portal
+    build:
+      context: ./web-portal
+      dockerfile: Dockerfile
+    env_file:
+      - ./env/user/web-portal-mail.env
+    environment:
+      PORT: 3000
+      DB_HOST: ac-database
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DOCKER_DB_ROOT_PASSWORD:-password}
+      AUTH_DB_NAME: acore_auth
+      CHARS_DB_NAME: acore_characters
+      WORLD_DB_NAME: acore_world
+      AUTHSERVER_HOST: ac-authserver
+      WORLDSERVER_HOST: ac-worldserver
+      SESSION_SECRET: ${AC_WEB_SESSION_SECRET:-please-change-me}
+      WEB_PORTAL_CONFIG: /app/config/portal.config.json
+      DOWNLOAD_URL: /download
+      DOWNLOAD_FILE: /app/downloads/wow-client.zip
+      SITE_URL: ${AC_WEB_SITE_URL:-}
+      SITE_NAME: ${AC_WEB_SITE_NAME:-Bobek Industries}
+      SITE_DESCRIPTION: ${AC_WEB_SITE_DESCRIPTION:-A free World of Warcraft 3.3.5a (Wrath of the Lich King) private server. Join our community and start your adventure today!}
+      SITE_IMAGE: ${AC_WEB_SITE_IMAGE:-}
+    ports:
+      - ${DOCKER_WEB_EXTERNAL_PORT:-8080}:3000
+    volumes:
+      - ./web-portal/config/portal.config.json:/app/config/portal.config.json:ro
+      - /home/blin/World of Warcraft 3.3.5a.zip:/app/downloads/wow-client.zip:ro
+    networks:
+      - ac-network
+    restart: unless-stopped
+    depends_on:
+      ac-database:
+        condition: service_healthy
+
 volumes:
   ac-database:
   ac-client-data:
