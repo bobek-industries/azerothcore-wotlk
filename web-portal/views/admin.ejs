@@ -23,8 +23,8 @@
           <span class="nav-sub">WotLK 3.3.5a</span>
         </a>
         <div class="nav-links">
-          <a class="btn btn-ghost" href="/panel">My Characters</a>
-          <a class="btn btn-ghost" href="/">Home</a>
+          <a class="btn btn-ghost" href="/realm/<%= activeRealm.slug %>/panel">My Characters</a>
+          <a class="btn btn-ghost" href="/realm/<%= activeRealm.slug %>">Home</a>
           <form method="post" action="/logout">
             <button class="btn btn-danger" type="submit">Log Out</button>
           </form>
@@ -36,7 +36,13 @@
       <section class="card">
         <p class="kicker">GM / Admin</p>
         <h1>Control Center</h1>
-        <p class="subtitle">Manage accounts and inspect online players.</p>
+        <p class="subtitle">Manage accounts and inspect online players on <strong><%= activeRealm.name %></strong>.</p>
+
+        <div class="card-actions" style="margin-top:1rem">
+          <% realms.forEach((realm) => { %>
+          <a class="btn <%= realm.slug === activeRealm.slug ? 'btn-primary' : 'btn-ghost' %>" href="/admin?realm=<%= realm.slug %><% if (searchQuery) { %>&q=<%= encodeURIComponent(searchQuery) %><% } %>"><%= realm.name %></a>
+          <% }) %>
+        </div>
 
         <% if (flash) { %>
         <div class="flash <%= flash.type %>"><%= flash.message %></div>
@@ -45,6 +51,7 @@
         <div class="divider"><h2>Account Lookup</h2></div>
 
         <form class="inline-form" method="get" action="/admin">
+          <input type="hidden" name="realm" value="<%= activeRealm.slug %>" />
           <input name="q" value="<%= searchQuery %>" placeholder="username or account id" />
           <button class="btn btn-primary" type="submit">Search</button>
         </form>
@@ -73,6 +80,7 @@
           <div class="admin-actions-grid">
             <form method="post" action="/admin/set-gm-level" class="admin-action">
               <input type="hidden" name="account" value="<%= account.id %>" />
+              <input type="hidden" name="realm" value="<%= activeRealm.slug %>" />
               <label>
                 Set GM Level (0-3)
                 <input type="number" name="gmlevel" min="0" max="3" value="<%= account.gmlevel %>" required />
@@ -86,6 +94,7 @@
 
             <form method="post" action="/admin/ban" class="admin-action">
               <input type="hidden" name="account" value="<%= account.id %>" />
+              <input type="hidden" name="realm" value="<%= activeRealm.slug %>" />
               <label>
                 Ban Minutes
                 <input type="number" name="minutes" min="1" value="60" required />
@@ -99,12 +108,14 @@
 
             <form method="post" action="/admin/unban" class="admin-action">
               <input type="hidden" name="account" value="<%= account.id %>" />
+              <input type="hidden" name="realm" value="<%= activeRealm.slug %>" />
               <p>Remove all active bans for this account.</p>
               <button class="btn btn-primary" type="submit">Unban</button>
             </form>
 
             <form method="post" action="/admin/toggle-lock" class="admin-action">
               <input type="hidden" name="account" value="<%= account.id %>" />
+              <input type="hidden" name="realm" value="<%= activeRealm.slug %>" />
               <input type="hidden" name="locked" value="<%= account.locked ? '0' : '1' %>" />
               <p><%= account.locked ? 'Unlock this account' : 'Lock this account' %></p>
               <button class="btn btn-ghost" type="submit">
@@ -140,7 +151,7 @@
                 <td><%= player.race %> <%= player.class %></td>
                 <td><%= player.accountName %> (#<%= player.account %>)</td>
                 <td><%= player.map %> / <%= player.zone %></td>
-                <td><a class="btn btn-ghost" href="/characters/<%= player.guid %>">View</a></td>
+                <td><a class="btn btn-ghost" href="/realm/<%= activeRealm.slug %>/characters/<%= player.guid %>">View</a></td>
               </tr>
               <% }) %>
             </tbody>
@@ -171,7 +182,7 @@
                 <td><%= entry.actor_user %></td>
                 <td><code><%= entry.action %></code></td>
                 <td><%= entry.target_user || '-' %></td>
-                <td><small><%= entry.details || '' %></small></td>
+                <td><small>[<%= entry.realm_slug || 'global' %>] <%= entry.details || '' %></small></td>
               </tr>
               <% }) %>
             </tbody>
@@ -182,9 +193,19 @@
         <div class="divider"><h2>News Management</h2></div>
 
         <form method="post" action="/admin/news/post" class="news-compose">
+          <input type="hidden" name="realm" value="<%= activeRealm.slug %>" />
           <label>
             Title
             <input name="title" maxlength="200" placeholder="Announcement title&hellip;" required />
+          </label>
+          <label>
+            Target Realm
+            <select name="realmSlug">
+              <option value="all">All realms</option>
+              <% realms.forEach((realm) => { %>
+              <option value="<%= realm.slug %>" <%= realm.slug === activeRealm.slug ? 'selected' : '' %>><%= realm.name %></option>
+              <% }) %>
+            </select>
           </label>
           <label>
             Body
@@ -205,6 +226,7 @@
             </div>
             <form method="post" action="/admin/news/delete">
               <input type="hidden" name="id" value="<%= post.id %>" />
+              <input type="hidden" name="realm" value="<%= activeRealm.slug %>" />
               <button class="btn btn-danger" type="submit" style="font-size:0.78rem;padding:0.35rem 0.7rem">Delete</button>
             </form>
           </div>

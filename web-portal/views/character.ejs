@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><%= character.name %> &mdash; Character Details</title>
+    <title><%= character.name %> &mdash; <%= activeRealm.name %> Character Details</title>
     <meta name="robots" content="noindex, nofollow" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,9 +23,9 @@
           <span class="nav-sub">WotLK 3.3.5a</span>
         </a>
         <div class="nav-links">
-          <a class="btn btn-ghost" href="/panel">My Characters</a>
+          <a class="btn btn-ghost" href="/realm/<%= activeRealm.slug %>/panel">My Characters</a>
           <% if (isAdmin) { %>
-          <a class="btn btn-ghost" href="/admin">Admin</a>
+          <a class="btn btn-ghost" href="/admin?realm=<%= activeRealm.slug %>">Admin</a>
           <% } %>
           <form method="post" action="/logout">
             <button class="btn btn-danger" type="submit">Log Out</button>
@@ -38,6 +38,7 @@
       <section class="card">
         <p class="kicker">Character Details</p>
         <h1><%= character.name %></h1>
+        <p class="subtitle"><strong>Realm:</strong> <%= activeRealm.name %></p>
         <p class="subtitle">
           Level <strong><%= character.level %></strong> &mdash; <%= character.race %> <%= character.class %>
         </p>
@@ -137,7 +138,7 @@
         <% if (character.online) { %>
         <div class="empty">Character must be <strong>offline</strong> to teleport.</div>
         <% } else { %>
-        <form method="post" action="/characters/<%= character.guid %>/teleport">
+        <form method="post" action="/realm/<%= activeRealm.slug %>/characters/<%= character.guid %>/teleport">
           <% const factions = ['neutral', character.faction]; %>
           <% const factionLabel = { neutral: 'Neutral', alliance: 'Alliance', horde: 'Horde' }; %>
           <% factions.forEach((faction) => { %>

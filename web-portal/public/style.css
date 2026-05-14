@@ -1518,6 +1518,39 @@ details[open] .how-to-arrow {
   padding: 0.7rem 0;
   border-bottom: 1px solid rgba(200, 146, 42, 0.08);
 }
+  .realm-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+  }
+  .realm-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    background: var(--inner);
+  }
+  .realm-card.active {
+    border-color: var(--border-hi);
+    box-shadow: 0 0 0 1px rgba(200, 146, 42, 0.2) inset;
+  }
+  .realm-card header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.7rem;
+  }
+  .realm-pop {
+    margin: 0.65rem 0 0.95rem;
+    color: var(--text-dim);
+  }
+  .news-compose select {
+    width: 100%;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+  }
 
 .news-item-row:last-child {
   border-bottom: 0;

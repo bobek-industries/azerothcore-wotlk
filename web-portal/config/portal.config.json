@@ -1,0 +1,39 @@
+{
+  "discordUrl": "https://discord.gg/Ye9BUsKThG",
+  "downloadUrl": "/download",
+  "realmlistHost": "wow-wotlk.bobek-industries.org",
+  "siteName": "Bobek Industries",
+  "siteDescription": "A free World of Warcraft 3.3.5a (Wrath of the Lich King) private server. Join our community and start your adventure today!",
+  "realms": [
+    {
+      "slug": "base",
+      "name": "Blizzlike",
+      "description": "Classic progression gameplay",
+      "badge": "x1",
+      "charsDb": "acore_characters",
+      "worldDb": "acore_world",
+      "worldHost": "ac-worldserver",
+      "worldPort": 8085
+    },
+    {
+      "slug": "pvp",
+      "name": "Instant 80 PvP",
+      "description": "Fast competitive arena and battleground realm",
+      "badge": "Instant 80",
+      "charsDb": "acore_characters_pvp",
+      "worldDb": "acore_world_pvp",
+      "worldHost": "ac-worldserver-pvp",
+      "worldPort": 8085
+    },
+    {
+      "slug": "pve",
+      "name": "Instant 80 PvE",
+      "description": "Raid and dungeon focused realm",
+      "badge": "Instant 80",
+      "charsDb": "acore_characters_pve",
+      "worldDb": "acore_world_pve",
+      "worldHost": "ac-worldserver-pve",
+      "worldPort": 8085
+    }
+  ]
+}

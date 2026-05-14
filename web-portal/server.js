@@ -21,8 +21,6 @@ const verificationTokenTtlHours = Number(process.env.MAIL_VERIFY_TTL_HOURS || 24
 const passwordResetTokenTtlMinutes = Number(process.env.MAIL_RESET_TTL_MINUTES || 30);
 
 const authDbName = process.env.AUTH_DB_NAME || "acore_auth";
-const charactersDbName = process.env.CHARS_DB_NAME || "acore_characters";
-const worldDbName = process.env.WORLD_DB_NAME || "acore_world";
 
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null)
@@ -97,6 +95,98 @@ const siteUrl       = process.env.SITE_URL      || portalConfig.siteUrl     || "
 const siteName      = process.env.SITE_NAME     || portalConfig.siteName    || "Bobek Industries";
 const siteDescription = process.env.SITE_DESCRIPTION || portalConfig.siteDescription || "A free World of Warcraft 3.3.5a (Wrath of the Lich King) private server. Join our community and start your adventure today!";
 const siteImage     = process.env.SITE_IMAGE    || portalConfig.siteImage   || "";
+
+function normalizeRealmSlug(value) {
+  return (value || "").toString().trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+}
+
+function resolveRealmList() {
+  const configuredRealms = Array.isArray(portalConfig.realms) ? portalConfig.realms : [];
+
+  const defaultRealms = [
+    {
+      slug: "base",
+      name: "Blizzlike",
+      description: "Classic progression gameplay",
+      badge: "x1",
+      charsDb: process.env.CHARS_DB_NAME || "acore_characters",
+      worldDb: process.env.WORLD_DB_NAME || "acore_world",
+      worldHost: process.env.WORLDSERVER_HOST || "ac-worldserver",
+      worldPort: Number(process.env.WORLDSERVER_PORT || 8085)
+    },
+    {
+      slug: "pvp",
+      name: "Instant 80 PvP",
+      description: "Fast competitive arena and battleground realm",
+      badge: "Instant 80",
+      charsDb: process.env.CHARS_DB_NAME_PVP || "acore_characters_pvp",
+      worldDb: process.env.WORLD_DB_NAME_PVP || "acore_world_pvp",
+      worldHost: process.env.WORLDSERVER_HOST_PVP || "ac-worldserver-pvp",
+      worldPort: Number(process.env.WORLDSERVER_PORT_PVP || 8085)
+    },
+    {
+      slug: "pve",
+      name: "Instant 80 PvE",
+      description: "Raid and dungeon focused realm",
+      badge: "Instant 80",
+      charsDb: process.env.CHARS_DB_NAME_PVE || "acore_characters_pve",
+      worldDb: process.env.WORLD_DB_NAME_PVE || "acore_world_pve",
+      worldHost: process.env.WORLDSERVER_HOST_PVE || "ac-worldserver-pve",
+      worldPort: Number(process.env.WORLDSERVER_PORT_PVE || 8085)
+    }
+  ];
+
+  const realms = configuredRealms.length > 0 ? configuredRealms : defaultRealms;
+  const normalized = realms
+    .map((realm) => {
+      const slug = normalizeRealmSlug(realm.slug);
+      if (!slug)
+        return null;
+
+      return {
+        slug,
+        name: (realm.name || slug).toString(),
+        description: (realm.description || "").toString(),
+        badge: (realm.badge || "").toString(),
+        charsDb: (realm.charsDb || "").toString(),
+        worldDb: (realm.worldDb || "").toString(),
+        worldHost: (realm.worldHost || "").toString(),
+        worldPort: Number(realm.worldPort || 8085)
+      };
+    })
+    .filter(Boolean)
+    .filter((realm) => realm.charsDb && realm.worldDb && realm.worldHost && Number.isInteger(realm.worldPort));
+
+  if (normalized.length === 0) {
+    throw new Error("No valid realms configured. Check WEB_PORTAL_CONFIG or environment variables.");
+  }
+
+  const seen = new Set();
+  const deduped = [];
+  for (const realm of normalized) {
+    if (seen.has(realm.slug))
+      continue;
+    seen.add(realm.slug);
+    deduped.push(realm);
+  }
+
+  return deduped;
+}
+
+const realms = resolveRealmList();
+const realmsBySlug = new Map(realms.map((realm) => [realm.slug, realm]));
+const defaultRealmSlug = normalizeRealmSlug(process.env.DEFAULT_REALM_SLUG) || realms[0].slug;
+
+function getRealmBySlug(realmSlug) {
+  const slug = normalizeRealmSlug(realmSlug) || defaultRealmSlug;
+  return realmsBySlug.get(slug) || realmsBySlug.get(defaultRealmSlug) || realms[0];
+}
+
+function realmPath(realmSlug, suffix = "") {
+  const realm = getRealmBySlug(realmSlug);
+  const normalizedSuffix = suffix ? `/${suffix.replace(/^\/+/, "")}` : "";
+  return `/realm/${realm.slug}${normalizedSuffix}`;
+}
 
 const N = BigInt(
   "0x894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7"
@@ -173,12 +263,15 @@ app.use((req, res, next) => {
   res.locals.discordUrl = discordUrl;
   res.locals.forumUrl = forumUrl;
   res.locals.downloadUrl = downloadUrl;
+  res.locals.realms = realms;
+  res.locals.defaultRealmSlug = defaultRealmSlug;
+  res.locals.realmPath = realmPath;
   next();
 });
 
 let authPool;
-let charsPool;
-let worldPool;
+const charsPools = new Map();
+const worldPools = new Map();
 
 function upperLatin(value) {
   return (value || "").trim().toUpperCase();
@@ -412,6 +505,47 @@ function consumeFlash(req) {
   return flash;
 }
 
+function getRequestedRealmSlug(req) {
+  const fromPath = normalizeRealmSlug(req.params?.realmSlug);
+  if (fromPath)
+    return fromPath;
+
+  const fromBody = normalizeRealmSlug(req.body?.realm);
+  if (fromBody)
+    return fromBody;
+
+  const fromQuery = normalizeRealmSlug(req.query?.realm);
+  if (fromQuery)
+    return fromQuery;
+
+  const fromSession = normalizeRealmSlug(req.session?.activeRealm);
+  if (fromSession)
+    return fromSession;
+
+  return defaultRealmSlug;
+}
+
+function resolveRealm(req) {
+  const realm = getRealmBySlug(getRequestedRealmSlug(req));
+  if (req.session)
+    req.session.activeRealm = realm.slug;
+  return realm;
+}
+
+function getCharsPoolByRealm(realmSlug) {
+  const pool = charsPools.get(getRealmBySlug(realmSlug).slug);
+  if (!pool)
+    throw new Error(`Missing characters DB pool for realm '${realmSlug}'`);
+  return pool;
+}
+
+function getWorldPoolByRealm(realmSlug) {
+  const pool = worldPools.get(getRealmBySlug(realmSlug).slug);
+  if (!pool)
+    throw new Error(`Missing world DB pool for realm '${realmSlug}'`);
+  return pool;
+}
+
 function formatMoney(copper) {
   const value = Number(copper || 0);
   const gold = Math.floor(value / 10000);
@@ -466,7 +600,8 @@ function checkTcp(name, host, checkPort, timeoutMs = 800) {
   });
 }
 
-async function getOnlineStats() {
+async function getOnlineStats(realmSlug) {
+  const charsPool = getCharsPoolByRealm(realmSlug);
   try {
     const [rows] = await charsPool.query(
       `SELECT
@@ -493,7 +628,8 @@ async function getOnlineStats() {
   }
 }
 
-async function getServerMetrics() {
+async function getServerMetrics(realmSlug) {
+  const charsPool = getCharsPoolByRealm(realmSlug);
   let uptimeSeconds = 0;
   let maxPlayers = 0;
   let gmOnline = 0;
@@ -526,7 +662,8 @@ async function getServerMetrics() {
   };
 }
 
-async function getTopPvpPlayers() {
+async function getTopPvpPlayers(realmSlug) {
+  const charsPool = getCharsPoolByRealm(realmSlug);
   try {
     const [rows] = await charsPool.query(
       `SELECT name, race, class, level, totalKills
@@ -547,10 +684,15 @@ async function getTopPvpPlayers() {
   }
 }
 
-async function getLatestNews() {
+async function getLatestNews(realmSlug) {
   try {
     const [rows] = await authPool.query(
-      "SELECT id, created_at, title, body, author FROM portal_news ORDER BY created_at DESC LIMIT 5"
+      `SELECT id, created_at, title, body, author, realm_slug
+       FROM portal_news
+       WHERE realm_slug IS NULL OR realm_slug = ?
+       ORDER BY created_at DESC
+       LIMIT 5`,
+      [getRealmBySlug(realmSlug).slug]
     );
     return rows;
   } catch (_) {
@@ -558,9 +700,10 @@ async function getLatestNews() {
   }
 }
 
-async function getServerStatus() {
+async function getServerStatus(realmSlug) {
+  const realm = getRealmBySlug(realmSlug);
   const [world, auth] = await Promise.all([
-    checkTcp("Worldserver", process.env.WORLDSERVER_HOST || "ac-worldserver", 8085),
+    checkTcp(`${realm.name} Worldserver`, realm.worldHost, realm.worldPort),
     checkTcp("Authserver", process.env.AUTHSERVER_HOST || "ac-authserver", 3724)
   ]);
 
@@ -577,7 +720,24 @@ async function getServerStatus() {
   return [world, auth, database];
 }
 
-async function loadCharactersByAccount(accountId) {
+async function getRealmOverview(realmSlug) {
+  const realm = getRealmBySlug(realmSlug);
+  const [status, onlineStats, serverMetrics] = await Promise.all([
+    getServerStatus(realm.slug),
+    getOnlineStats(realm.slug),
+    getServerMetrics(realm.slug)
+  ]);
+
+  return {
+    realm,
+    status,
+    onlineStats,
+    serverMetrics
+  };
+}
+
+async function loadCharactersByAccount(accountId, realmSlug) {
+  const charsPool = getCharsPoolByRealm(realmSlug);
   const [rows] = await charsPool.query(
     `SELECT guid, name, race, class, level, online
      FROM characters
@@ -658,7 +818,7 @@ async function requireAdmin(req, res, next) {
         type: "error",
         message: "Admin panel is available only for administrator accounts."
       };
-      return res.redirect("/panel");
+      return res.redirect(realmPath(getRequestedRealmSlug(req), "panel"));
     }
 
     return next();
@@ -667,11 +827,14 @@ async function requireAdmin(req, res, next) {
       type: "error",
       message: `Admin authorization failed: ${error.code || "db_error"}`
     };
-    return res.redirect("/panel");
+    return res.redirect(realmPath(getRequestedRealmSlug(req), "panel"));
   }
 }
 
-async function loadCharacterDetail(guid) {
+async function loadCharacterDetail(guid, realmSlug) {
+  const realm = getRealmBySlug(realmSlug);
+  const charsPool = getCharsPoolByRealm(realm.slug);
+  const worldPool = getWorldPoolByRealm(realm.slug);
   const [rows] = await charsPool.query(
     `SELECT
        guid,
@@ -736,7 +899,7 @@ async function loadCharacterDetail(guid) {
        SUM(ii.count) AS totalCount
      FROM character_inventory ci
      JOIN item_instance ii ON ii.guid = ci.item
-     LEFT JOIN ${worldDbName}.item_template it ON it.entry = ii.itemEntry
+    LEFT JOIN ${realm.worldDb}.item_template it ON it.entry = ii.itemEntry
      WHERE ci.guid = ?
      GROUP BY ii.itemEntry, itemName
      ORDER BY totalCount DESC, ii.itemEntry ASC
@@ -779,17 +942,42 @@ async function loadCharacterDetail(guid) {
   };
 }
 
-app.get("/", async (req, res) => {
-  const [status, onlineStats, serverMetrics, topPvp, latestNews] = await Promise.all([
-    getServerStatus(),
-    getOnlineStats(),
-    getServerMetrics(),
-    getTopPvpPlayers(),
-    getLatestNews()
-  ]);
+async function renderHomePage(req, res, selectedRealmSlug) {
+  const activeRealm = getRealmBySlug(selectedRealmSlug || defaultRealmSlug);
   const flash = consumeFlash(req);
 
-  res.render("index", {
+  const realmCards = await Promise.all(realms.map(async (realm) => {
+    try {
+      const overview = await getRealmOverview(realm.slug);
+      return {
+        realm,
+        ...overview,
+        available: true
+      };
+    } catch (error) {
+      return {
+        realm,
+        status: [
+          { name: `${realm.name} Worldserver`, ...statusFromError(error) },
+          { name: "Authserver", ...statusFromError(error) },
+          { name: "Database", ...statusFromError(error) }
+        ],
+        onlineStats: { total: 0, horde: 0, alliance: 0, hordePercent: 0, alliancePercent: 0 },
+        serverMetrics: { uptimeSeconds: 0, uptimeFormatted: "0m", maxPlayers: 0, gmOnline: 0 },
+        available: false
+      };
+    }
+  }));
+
+  const [status, onlineStats, serverMetrics, topPvp, latestNews] = await Promise.all([
+    getServerStatus(activeRealm.slug),
+    getOnlineStats(activeRealm.slug),
+    getServerMetrics(activeRealm.slug),
+    getTopPvpPlayers(activeRealm.slug),
+    getLatestNews(activeRealm.slug)
+  ]);
+
+  return res.render("index", {
     status,
     onlineStats,
     serverMetrics,
@@ -797,6 +985,8 @@ app.get("/", async (req, res) => {
     latestNews,
     flash,
     user: req.session.user || null,
+    activeRealm,
+    realmCards,
     discordUrl,
     forumUrl,
     downloadUrl,
@@ -806,10 +996,18 @@ app.get("/", async (req, res) => {
     siteDescription,
     siteImage
   });
+}
+
+app.get("/", async (req, res) => renderHomePage(req, res, defaultRealmSlug));
+
+app.get("/realm/:realmSlug", async (req, res) => {
+  const realm = resolveRealm(req);
+  return renderHomePage(req, res, realm.slug);
 });
 
 app.get("/robots.txt", (req, res) => {
   const base = siteUrl ? siteUrl.replace(/\/$/, "") : "";
+  const realmDisallow = realms.map((realm) => `Disallow: /realm/${realm.slug}/panel\nDisallow: /realm/${realm.slug}/characters\n`).join("");
   res.type("text/plain");
   res.send(
     "User-agent: *\n" +
@@ -817,6 +1015,7 @@ app.get("/robots.txt", (req, res) => {
     "Disallow: /panel\n" +
     "Disallow: /admin\n" +
     "Disallow: /character\n" +
+    realmDisallow +
     (base ? `\nSitemap: ${base}/sitemap.xml\n` : "")
   );
 });
@@ -830,6 +1029,8 @@ app.get("/sitemap.xml", (req, res) => {
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
     `  <url><loc>${base}/</loc><lastmod>${now}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>\n` +
+    realms.map((realm) => `  <url><loc>${base}/realm/${realm.slug}</loc><lastmod>${now}</lastmod><changefreq>hourly</changefreq><priority>0.9</priority></url>`).join("\n") +
+    "\n" +
     `</urlset>`
   );
 });
@@ -922,11 +1123,11 @@ app.post("/reset-password", async (req, res) => {
 app.get("/reset-password", async (req, res) => {
   const token = (req.query.token || "").toString().trim();
   if (!token) {
-    req.session.flash = {
-      type: "error",
-      message: "Password reset token is missing."
-    };
-    return res.redirect("/");
+    return res.render("reset-password", {
+      flash: { type: "error", message: "Password reset token is missing." },
+      token: "",
+      username: "Unknown"
+    });
   }
 
   try {
@@ -1333,7 +1534,8 @@ app.post("/login", async (req, res) => {
       gmlevel: await getAccountGmLevel(account.id)
     };
 
-    return res.redirect("/panel");
+    const nextRealm = getRealmBySlug(req.session.activeRealm || defaultRealmSlug);
+    return res.redirect(realmPath(nextRealm.slug, "panel"));
   } catch (error) {
     req.session.flash = {
       type: "error",
@@ -1349,16 +1551,21 @@ app.post("/logout", (req, res) => {
   });
 });
 
-app.get("/panel", async (req, res) => {
-  if (!req.session.user)
-    return res.redirect("/");
+app.get("/panel", requireLogin, (req, res) => {
+  return res.redirect(realmPath(getRequestedRealmSlug(req), "panel"));
+});
+
+app.get("/realm/:realmSlug/panel", requireLogin, async (req, res) => {
+  const realm = resolveRealm(req);
 
   try {
     req.session.user.gmlevel = await getAccountGmLevel(req.session.user.accountId);
-    const characters = await loadCharactersByAccount(req.session.user.accountId);
+    const characters = await loadCharactersByAccount(req.session.user.accountId, realm.slug);
     return res.render("panel", {
       user: req.session.user,
       characters,
+      activeRealm: realm,
+      realms,
       flash: consumeFlash(req)
     });
   } catch (error) {
@@ -1366,22 +1573,27 @@ app.get("/panel", async (req, res) => {
       type: "error",
       message: `Could not load characters: ${error.code || "db_error"}`
     };
-    return res.redirect("/");
+    return res.redirect(realmPath(realm.slug));
   }
 });
 
-app.get("/characters/:guid", requireLogin, async (req, res) => {
+app.get("/characters/:guid", requireLogin, (req, res) => {
+  return res.redirect(realmPath(getRequestedRealmSlug(req), `characters/${req.params.guid}`));
+});
+
+app.get("/realm/:realmSlug/characters/:guid", requireLogin, async (req, res) => {
+  const realm = resolveRealm(req);
   const guid = Number(req.params.guid);
   if (!Number.isInteger(guid) || guid <= 0) {
     req.session.flash = { type: "error", message: "Invalid character id." };
-    return res.redirect("/panel");
+    return res.redirect(realmPath(realm.slug, "panel"));
   }
 
   try {
-    const character = await loadCharacterDetail(guid);
+    const character = await loadCharacterDetail(guid, realm.slug);
     if (!character) {
       req.session.flash = { type: "error", message: "Character not found." };
-      return res.redirect("/panel");
+      return res.redirect(realmPath(realm.slug, "panel"));
     }
 
     const isAdmin = req.session.user.gmlevel >= 3;
@@ -1390,12 +1602,13 @@ app.get("/characters/:guid", requireLogin, async (req, res) => {
         type: "error",
         message: "You do not have access to this character."
       };
-      return res.redirect("/panel");
+      return res.redirect(realmPath(realm.slug, "panel"));
     }
 
     return res.render("character", {
       user: req.session.user,
       character,
+      activeRealm: realm,
       flash: consumeFlash(req),
       isAdmin,
       teleportLocations: TELEPORT_LOCATIONS
@@ -1405,22 +1618,28 @@ app.get("/characters/:guid", requireLogin, async (req, res) => {
       type: "error",
       message: `Character load failed: ${error.code || "db_error"}`
     };
-    return res.redirect("/panel");
+    return res.redirect(realmPath(realm.slug, "panel"));
   }
 });
 
-app.post("/characters/:guid/teleport", requireLogin, async (req, res) => {
+app.post("/characters/:guid/teleport", requireLogin, (req, res) => {
+  return res.redirect(307, realmPath(getRequestedRealmSlug(req), `characters/${req.params.guid}/teleport`));
+});
+
+app.post("/realm/:realmSlug/characters/:guid/teleport", requireLogin, async (req, res) => {
+  const realm = resolveRealm(req);
+  const charsPool = getCharsPoolByRealm(realm.slug);
   const guid = Number(req.params.guid);
   if (!Number.isInteger(guid) || guid <= 0) {
     req.session.flash = { type: "error", message: "Invalid character id." };
-    return res.redirect("/panel");
+    return res.redirect(realmPath(realm.slug, "panel"));
   }
 
   const locationId = (req.body.location || "").trim();
   const location = TELEPORT_LOCATIONS.find((l) => l.id === locationId);
   if (!location) {
     req.session.flash = { type: "error", message: "Unknown teleport location." };
-    return res.redirect(`/characters/${guid}`);
+    return res.redirect(realmPath(realm.slug, `characters/${guid}`));
   }
 
   try {
@@ -1431,7 +1650,7 @@ app.post("/characters/:guid/teleport", requireLogin, async (req, res) => {
 
     if (charRows.length === 0) {
       req.session.flash = { type: "error", message: "Character not found." };
-      return res.redirect("/panel");
+      return res.redirect(realmPath(realm.slug, "panel"));
     }
 
     const char = charRows[0];
@@ -1439,18 +1658,18 @@ app.post("/characters/:guid/teleport", requireLogin, async (req, res) => {
 
     if (!isAdmin && char.account !== req.session.user.accountId) {
       req.session.flash = { type: "error", message: "You do not have access to this character." };
-      return res.redirect("/panel");
+      return res.redirect(realmPath(realm.slug, "panel"));
     }
 
     const charFaction = getCharacterFaction(char.race);
     if (location.faction !== "neutral" && location.faction !== charFaction) {
       req.session.flash = { type: "error", message: "That city is not available for your character's faction." };
-      return res.redirect(`/characters/${guid}`);
+      return res.redirect(realmPath(realm.slug, `characters/${guid}`));
     }
 
     if (char.online) {
       req.session.flash = { type: "error", message: "Character must be offline to teleport." };
-      return res.redirect(`/characters/${guid}`);
+      return res.redirect(realmPath(realm.slug, `characters/${guid}`));
     }
 
     await charsPool.query(
@@ -1468,7 +1687,8 @@ app.post("/characters/:guid/teleport", requireLogin, async (req, res) => {
         "teleport",
         char.account,
         char.name,
-        `location=${location.id} map=${location.mapId}`
+        `location=${location.id} map=${location.mapId}`,
+        realm.slug
       );
     }
 
@@ -1483,10 +1703,18 @@ app.post("/characters/:guid/teleport", requireLogin, async (req, res) => {
     };
   }
 
-  return res.redirect(`/characters/${guid}`);
+  return res.redirect(realmPath(realm.slug, `characters/${guid}`));
 });
 
+function adminRedirectPath(realmSlug, searchQuery = "") {
+  const realm = getRealmBySlug(realmSlug);
+  const q = searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : "";
+  return `/admin?realm=${encodeURIComponent(realm.slug)}${q}`;
+}
+
 app.get("/admin", requireAdmin, async (req, res) => {
+  const selectedRealm = resolveRealm(req);
+  const charsPool = getCharsPoolByRealm(selectedRealm.slug);
   const rawQuery = (req.query.q || "").toString().trim();
   const accountInput = parseAccountInput(rawQuery);
 
@@ -1555,18 +1783,25 @@ app.get("/admin", requireAdmin, async (req, res) => {
   );
 
   const [auditRows] = await authPool.query(
-    `SELECT id, ts, actor_user, action, target_user, details
+    `SELECT id, ts, actor_user, action, target_user, details, realm_slug
      FROM portal_audit_log
      ORDER BY ts DESC
      LIMIT 50`
   );
 
   const [newsRows] = await authPool.query(
-    "SELECT id, created_at, title, author FROM portal_news ORDER BY created_at DESC LIMIT 20"
+    `SELECT id, created_at, title, author, realm_slug
+     FROM portal_news
+     WHERE realm_slug IS NULL OR realm_slug = ?
+     ORDER BY created_at DESC
+     LIMIT 20`,
+    [selectedRealm.slug]
   );
 
   return res.render("admin", {
     user: req.session.user,
+    activeRealm: selectedRealm,
+    realms,
     flash: consumeFlash(req),
     searchQuery: rawQuery,
     lookedUpAccounts,
@@ -1587,23 +1822,24 @@ app.get("/admin", requireAdmin, async (req, res) => {
 });
 
 app.post("/admin/set-gm-level", requireAdmin, async (req, res) => {
+  const selectedRealm = resolveRealm(req);
   const account = await findAccountByInput(parseAccountInput(req.body.account));
   const gmlevel = Number(req.body.gmlevel);
   const realmId = Number(req.body.realmId ?? -1);
 
   if (!account) {
     req.session.flash = { type: "error", message: "Account not found." };
-    return res.redirect("/admin");
+    return res.redirect(adminRedirectPath(selectedRealm.slug));
   }
 
   if (!Number.isInteger(gmlevel) || gmlevel < 0 || gmlevel > 3) {
     req.session.flash = { type: "error", message: "GM level must be between 0 and 3." };
-    return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+    return res.redirect(adminRedirectPath(selectedRealm.slug, account.username));
   }
 
   if (!Number.isInteger(realmId)) {
     req.session.flash = { type: "error", message: "Realm id must be an integer." };
-    return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+    return res.redirect(adminRedirectPath(selectedRealm.slug, account.username));
   }
 
   await authPool.query(
@@ -1619,29 +1855,31 @@ app.post("/admin/set-gm-level", requireAdmin, async (req, res) => {
     "set-gm-level",
     account.id,
     account.username,
-    `gmlevel=${gmlevel} realmId=${realmId}`
+    `gmlevel=${gmlevel} realmId=${realmId}`,
+    selectedRealm.slug
   );
 
   req.session.flash = {
     type: "success",
     message: `GM level for ${account.username} set to ${gmlevel} (realm ${realmId}).`
   };
-  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+  return res.redirect(adminRedirectPath(selectedRealm.slug, account.username));
 });
 
 app.post("/admin/ban", requireAdmin, async (req, res) => {
+  const selectedRealm = resolveRealm(req);
   const account = await findAccountByInput(parseAccountInput(req.body.account));
   const minutes = Number(req.body.minutes);
   const reason = (req.body.reason || "Portal moderation").toString().trim() || "Portal moderation";
 
   if (!account) {
     req.session.flash = { type: "error", message: "Account not found." };
-    return res.redirect("/admin");
+    return res.redirect(adminRedirectPath(selectedRealm.slug));
   }
 
   if (!Number.isInteger(minutes) || minutes < 1) {
     req.session.flash = { type: "error", message: "Ban minutes must be 1 or higher." };
-    return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+    return res.redirect(adminRedirectPath(selectedRealm.slug, account.username));
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -1659,21 +1897,23 @@ app.post("/admin/ban", requireAdmin, async (req, res) => {
     "ban",
     account.id,
     account.username,
-    `minutes=${minutes} reason=${reason}`
+    `minutes=${minutes} reason=${reason}`,
+    selectedRealm.slug
   );
 
   req.session.flash = {
     type: "success",
     message: `${account.username} banned for ${minutes} minutes.`
   };
-  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+  return res.redirect(adminRedirectPath(selectedRealm.slug, account.username));
 });
 
 app.post("/admin/unban", requireAdmin, async (req, res) => {
+  const selectedRealm = resolveRealm(req);
   const account = await findAccountByInput(parseAccountInput(req.body.account));
   if (!account) {
     req.session.flash = { type: "error", message: "Account not found." };
-    return res.redirect("/admin");
+    return res.redirect(adminRedirectPath(selectedRealm.slug));
   }
 
   await authPool.query(
@@ -1687,23 +1927,25 @@ app.post("/admin/unban", requireAdmin, async (req, res) => {
     "unban",
     account.id,
     account.username,
-    null
+    null,
+    selectedRealm.slug
   );
 
   req.session.flash = {
     type: "success",
     message: `All active bans removed for ${account.username}.`
   };
-  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+  return res.redirect(adminRedirectPath(selectedRealm.slug, account.username));
 });
 
 app.post("/admin/toggle-lock", requireAdmin, async (req, res) => {
+  const selectedRealm = resolveRealm(req);
   const account = await findAccountByInput(parseAccountInput(req.body.account));
   const lockState = req.body.locked === "1" ? 1 : 0;
 
   if (!account) {
     req.session.flash = { type: "error", message: "Account not found." };
-    return res.redirect("/admin");
+    return res.redirect(adminRedirectPath(selectedRealm.slug));
   }
 
   await authPool.query(
@@ -1717,44 +1959,49 @@ app.post("/admin/toggle-lock", requireAdmin, async (req, res) => {
     lockState ? "lock" : "unlock",
     account.id,
     account.username,
-    null
+    null,
+    selectedRealm.slug
   );
 
   req.session.flash = {
     type: "success",
     message: `${account.username} is now ${lockState ? "locked" : "unlocked"}.`
   };
-  return res.redirect(`/admin?q=${encodeURIComponent(account.username)}`);
+  return res.redirect(adminRedirectPath(selectedRealm.slug, account.username));
 });
 
 app.post("/admin/news/post", requireAdmin, async (req, res) => {
+  const selectedRealm = resolveRealm(req);
   const title = (req.body.title || "").trim();
   const body  = (req.body.body  || "").trim();
+  const selectedNewsRealm = normalizeRealmSlug(req.body.realmSlug);
+  const newsRealm = selectedNewsRealm === "all" ? null : getRealmBySlug(selectedNewsRealm || selectedRealm.slug);
 
   if (!title || !body) {
     req.session.flash = { type: "error", message: "Title and body are required." };
-    return res.redirect("/admin");
+    return res.redirect(adminRedirectPath(selectedRealm.slug));
   }
 
   await authPool.query(
-    "INSERT INTO portal_news (title, body, author) VALUES (?, ?, ?)",
-    [title.substring(0, 200), body, req.session.user.username]
+    "INSERT INTO portal_news (title, body, author, realm_slug) VALUES (?, ?, ?, ?)",
+    [title.substring(0, 200), body, req.session.user.username, newsRealm ? newsRealm.slug : null]
   );
 
   req.session.flash = { type: "success", message: "News post created." };
-  return res.redirect("/admin");
+  return res.redirect(adminRedirectPath(selectedRealm.slug));
 });
 
 app.post("/admin/news/delete", requireAdmin, async (req, res) => {
+  const selectedRealm = resolveRealm(req);
   const id = Number(req.body.id);
   if (!Number.isInteger(id) || id <= 0) {
     req.session.flash = { type: "error", message: "Invalid news id." };
-    return res.redirect("/admin");
+    return res.redirect(adminRedirectPath(selectedRealm.slug));
   }
 
   await authPool.query("DELETE FROM portal_news WHERE id = ?", [id]);
   req.session.flash = { type: "success", message: "News post deleted." };
-  return res.redirect("/admin");
+  return res.redirect(adminRedirectPath(selectedRealm.slug));
 });
 
 async function createNewsTable() {
@@ -1765,10 +2012,31 @@ async function createNewsTable() {
       title      VARCHAR(200)    NOT NULL,
       body       TEXT            NOT NULL,
       author     VARCHAR(32)     NOT NULL,
+      realm_slug VARCHAR(32)     DEFAULT NULL,
       PRIMARY KEY (id),
-      KEY idx_created (created_at)
+      KEY idx_created (created_at),
+      KEY idx_realm_slug (realm_slug)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  const [realmColRows] = await authPool.query(
+    `SELECT 1
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = 'portal_news'
+       AND COLUMN_NAME = 'realm_slug'
+     LIMIT 1`,
+    [authDbName]
+  );
+
+  if (realmColRows.length === 0) {
+    await authPool.query(
+      "ALTER TABLE portal_news ADD COLUMN realm_slug VARCHAR(32) NULL AFTER author"
+    );
+    await authPool.query(
+      "ALTER TABLE portal_news ADD KEY idx_realm_slug (realm_slug)"
+    );
+  }
 }
 
 async function createAuditTable() {
@@ -1782,11 +2050,32 @@ async function createAuditTable() {
       target_id  INT UNSIGNED    DEFAULT NULL,
       target_user VARCHAR(32)    DEFAULT NULL,
       details    TEXT            DEFAULT NULL,
+      realm_slug VARCHAR(32)     DEFAULT NULL,
       PRIMARY KEY (id),
       KEY idx_ts (ts),
-      KEY idx_actor (actor_id)
+      KEY idx_actor (actor_id),
+      KEY idx_realm_slug (realm_slug)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  const [realmColRows] = await authPool.query(
+    `SELECT 1
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = 'portal_audit_log'
+       AND COLUMN_NAME = 'realm_slug'
+     LIMIT 1`,
+    [authDbName]
+  );
+
+  if (realmColRows.length === 0) {
+    await authPool.query(
+      "ALTER TABLE portal_audit_log ADD COLUMN realm_slug VARCHAR(32) NULL AFTER details"
+    );
+    await authPool.query(
+      "ALTER TABLE portal_audit_log ADD KEY idx_realm_slug (realm_slug)"
+    );
+  }
 }
 
 async function createEmailVerificationTable() {
@@ -1892,12 +2181,12 @@ async function ensureUniqueAccountEmailConstraint() {
   );
 }
 
-async function writeAudit(actorId, actorUser, action, targetId, targetUser, details) {
+async function writeAudit(actorId, actorUser, action, targetId, targetUser, details, realmSlug = null) {
   try {
     await authPool.query(
-      `INSERT INTO portal_audit_log (actor_id, actor_user, action, target_id, target_user, details)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [actorId, actorUser, action, targetId || null, targetUser || null, details || null]
+      `INSERT INTO portal_audit_log (actor_id, actor_user, action, target_id, target_user, details, realm_slug)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [actorId, actorUser, action, targetId || null, targetUser || null, details || null, realmSlug]
     );
   } catch (error) {
     console.error("Audit log write failed:", error.message);
@@ -1913,21 +2202,29 @@ async function start() {
     namedPlaceholders: false
   });
 
-  charsPool = mysql.createPool({
-    ...dbConfig,
-    database: charactersDbName,
-    waitForConnections: true,
-    connectionLimit: 8,
-    namedPlaceholders: false
-  });
+  for (const realm of realms) {
+    charsPools.set(
+      realm.slug,
+      mysql.createPool({
+        ...dbConfig,
+        database: realm.charsDb,
+        waitForConnections: true,
+        connectionLimit: 8,
+        namedPlaceholders: false
+      })
+    );
 
-  worldPool = mysql.createPool({
-    ...dbConfig,
-    database: worldDbName,
-    waitForConnections: true,
-    connectionLimit: 6,
-    namedPlaceholders: false
-  });
+    worldPools.set(
+      realm.slug,
+      mysql.createPool({
+        ...dbConfig,
+        database: realm.worldDb,
+        waitForConnections: true,
+        connectionLimit: 6,
+        namedPlaceholders: false
+      })
+    );
+  }
 
   await createAuditTable();
   await createEmailVerificationTable();
@@ -1946,6 +2243,7 @@ async function start() {
 
   app.listen(port, () => {
     console.log(`AzerothCore web portal running on port ${port}`);
+    console.log(`Configured realms: ${realms.map((r) => `${r.slug}:${r.charsDb}/${r.worldDb}`).join(", ")}`);
   });
 }
 

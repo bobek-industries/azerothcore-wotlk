@@ -319,6 +319,13 @@ services:
       WORLD_DB_NAME: acore_world
       AUTHSERVER_HOST: ac-authserver
       WORLDSERVER_HOST: ac-worldserver
+      CHARS_DB_NAME_PVP: acore_characters_pvp
+      WORLD_DB_NAME_PVP: acore_world_pvp
+      WORLDSERVER_HOST_PVP: ac-worldserver-pvp
+      CHARS_DB_NAME_PVE: acore_characters_pve
+      WORLD_DB_NAME_PVE: acore_world_pve
+      WORLDSERVER_HOST_PVE: ac-worldserver-pve
+      DEFAULT_REALM_SLUG: base
       SESSION_SECRET: ${AC_WEB_SESSION_SECRET:-please-change-me}
       WEB_PORTAL_CONFIG: /app/config/portal.config.json
       DOWNLOAD_URL: /download

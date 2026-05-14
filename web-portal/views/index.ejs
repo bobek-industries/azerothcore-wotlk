@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><%= siteName %> &mdash; Realm Portal</title>
+    <title><%= siteName %> &mdash; <%= activeRealm.name %> Portal</title>
     <meta name="description" content="<%= siteDescription %>" />
     <meta name="robots" content="index, follow" />
     <% if (siteUrl) { %>
@@ -64,9 +64,9 @@
           <a class="btn btn-ghost" href="<%= downloadUrl %>" target="_blank" rel="noopener noreferrer">Download</a>
           <% } %>
           <% if (user) { %>
-          <a class="btn btn-ghost" href="/panel">My Characters</a>
+          <a class="btn btn-ghost" href="/realm/<%= activeRealm.slug %>/panel">My Characters</a>
           <% if (user.gmlevel >= 3) { %>
-          <a class="btn btn-ghost" href="/admin">Admin</a>
+          <a class="btn btn-ghost" href="/admin?realm=<%= activeRealm.slug %>">Admin</a>
           <% } %>
           <form method="post" action="/logout">
             <button class="btn btn-danger" type="submit">Log Out</button>
@@ -80,10 +80,32 @@
     </nav>
 
     <main class="shell-home reveal">
+      <section class="card realm-cards-wrap">
+        <div class="divider" style="margin-top:0"><h2>Choose Realm</h2></div>
+        <div class="realm-cards-grid">
+          <% realmCards.forEach((card) => { %>
+          <article class="realm-card <%= card.realm.slug === activeRealm.slug ? 'active' : '' %>">
+            <header>
+              <h3><%= card.realm.name %></h3>
+              <% if (card.realm.badge) { %><span class="pill up"><%= card.realm.badge %></span><% } %>
+            </header>
+            <p class="subtitle"><%= card.realm.description %></p>
+            <p class="realm-pop">Online now: <strong><%= card.onlineStats.total %></strong></p>
+            <div class="card-actions">
+              <a class="btn btn-primary" href="/realm/<%= card.realm.slug %>">Open Realm</a>
+              <% if (user) { %>
+              <a class="btn btn-ghost" href="/realm/<%= card.realm.slug %>/panel">Characters</a>
+              <% } %>
+            </div>
+          </article>
+          <% }) %>
+        </div>
+      </section>
+
       <!-- MAIN CARD: STATUS + AUTH -->
       <section class="card home-main-card">
           <div class="divider" style="margin-top:0">
-              <h2>Server Status</h2>
+              <h2><%= activeRealm.name %> Status</h2>
             </div>
 
             <div class="status-grid">
@@ -228,7 +250,7 @@
 
         <% if (topPvp.length > 0) { %>
         <section class="card leaderboard-section">
-          <div class="divider" style="margin-top:0"><h2>Top Honorable Kills</h2></div>
+          <div class="divider" style="margin-top:0"><h2><%= activeRealm.name %> Top Honorable Kills</h2></div>
           <ol class="leaderboard-list">
             <% topPvp.forEach((player, i) => { %>
             <li class="leaderboard-row <%= i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : '' %>">
@@ -261,6 +283,8 @@
                 <p>Register on this page with your desired username, email, and password.</p>
                 <% if (!user) { %>
                 <button class="btn btn-primary" type="button" data-target="register">Register Now</button>
+                <% } else { %>
+                <a class="btn btn-primary" href="/realm/<%= activeRealm.slug %>/panel">Open Character Panel</a>
                 <% } %>
               </div>
             </div>
@@ -282,7 +306,7 @@
                 <strong>Set the Realmlist</strong>
                 <p>Open <code>Data/enUS/realmlist.wtf</code> in your WoW folder and set:</p>
                 <pre class="realmlist-pre">set realmlist <%= realmlistHost || 'your.server.address' %></pre>
-                <p>Launch <code>Wow.exe</code>, log in with your portal credentials, and enter the world!</p>
+                <p>Launch <code>Wow.exe</code>, log in with your portal credentials, and pick <strong><%= activeRealm.name %></strong> in the realm list.</p>
               </div>
             </div>
         </div>

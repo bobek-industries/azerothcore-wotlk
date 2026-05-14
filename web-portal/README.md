@@ -2,13 +2,13 @@
 
 Simple player portal for AzerothCore with:
 
-- Dashboard server status (worldserver, authserver, database)
+- Multi-realm dashboard (base, PvP, PvE) with realm cards and status
 - Register form (username + password only)
 - Login
 - Password reset flow (username + new password)
-- User panel with characters linked to logged-in account
+- User panel with realm-aware character browsing
 - Character detail page (money, played time, map/location, inventory summary)
-- GM/Admin panel (account lookup, online players, moderation actions)
+- GM/Admin panel with realm filters (account lookup, online players, moderation)
 
 ## Run with Docker Compose
 
@@ -24,18 +24,26 @@ Open:
 
 ## Environment variables
 
-Configured from `docker-compose.override.yml`:
+Configured from compose environment and `web-portal/config/portal.config.json`:
 
 - `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`
 - `AUTH_DB_NAME` (default: `acore_auth`)
-- `CHARS_DB_NAME` (default: `acore_characters`)
-- `WORLD_DB_NAME` (default: `acore_world`)
-- `AUTHSERVER_HOST` (default: `ac-authserver`)
-- `WORLDSERVER_HOST` (default: `ac-worldserver`)
+- `DEFAULT_REALM_SLUG` (optional; default: first configured realm)
 - `SESSION_SECRET`
+
+Realm config keys (recommended via JSON config):
+
+- `realms[].slug`
+- `realms[].name`
+- `realms[].description`
+- `realms[].badge`
+- `realms[].charsDb`
+- `realms[].worldDb`
+- `realms[].worldHost`
+- `realms[].worldPort`
 
 ## Notes
 
 - Account credentials are normalized to uppercase, matching AzerothCore account behavior.
 - Registration uses AzerothCore SRP6-compatible salt+verifier creation.
-- Password reset in this first version is intentionally simple and does not use email verification tokens.
+- Legacy routes (`/panel`, `/characters/:guid`) are preserved as redirects to the active realm routes.
