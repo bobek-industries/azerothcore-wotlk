@@ -34,6 +34,7 @@ Configured from compose environment and `web-portal/config/portal.config.json`:
 Realm config keys (recommended via JSON config):
 
 - `realms[].slug`
+- `realms[].realmId` (optional, recommended for realm-specific uptime/peak metrics)
 - `realms[].name`
 - `realms[].description`
 - `realms[].badge`

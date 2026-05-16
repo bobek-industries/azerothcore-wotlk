@@ -106,6 +106,7 @@ function resolveRealmList() {
   const defaultRealms = [
     {
       slug: "base",
+      realmId: 1,
       name: "Blizzlike",
       description: "Classic progression gameplay",
       badge: "x1",
@@ -116,6 +117,7 @@ function resolveRealmList() {
     },
     {
       slug: "pvp",
+      realmId: 2,
       name: "Instant 80 PvP",
       description: "Fast competitive arena and battleground realm",
       badge: "Instant 80",
@@ -126,6 +128,7 @@ function resolveRealmList() {
     },
     {
       slug: "pve",
+      realmId: 3,
       name: "Instant 80 PvE",
       description: "Raid and dungeon focused realm",
       badge: "Instant 80",
@@ -145,6 +148,9 @@ function resolveRealmList() {
 
       return {
         slug,
+        realmId: Number.isInteger(Number(realm.realmId)) && Number(realm.realmId) > 0
+          ? Number(realm.realmId)
+          : null,
         name: (realm.name || slug).toString(),
         description: (realm.description || "").toString(),
         badge: (realm.badge || "").toString(),
@@ -629,20 +635,40 @@ async function getOnlineStats(realmSlug) {
 }
 
 async function getServerMetrics(realmSlug) {
+  const realm = getRealmBySlug(realmSlug);
   const charsPool = getCharsPoolByRealm(realmSlug);
   let uptimeSeconds = 0;
   let maxPlayers = 0;
+  let onlineNow = 0;
   let gmOnline = 0;
 
   try {
+    const uptimeQuery = Number.isInteger(realm.realmId) && realm.realmId > 0
+      ? "SELECT uptime, maxplayers FROM uptime WHERE realmid = ? ORDER BY starttime DESC LIMIT 1"
+      : "SELECT uptime, maxplayers FROM uptime ORDER BY starttime DESC LIMIT 1";
+    const uptimeParams = Number.isInteger(realm.realmId) && realm.realmId > 0
+      ? [realm.realmId]
+      : [];
+
     const [uptimeRows] = await authPool.query(
-      "SELECT uptime, maxplayers FROM uptime ORDER BY starttime DESC LIMIT 1"
+      uptimeQuery,
+      uptimeParams
     );
     if (uptimeRows.length > 0) {
       uptimeSeconds = Number(uptimeRows[0].uptime || 0);
       maxPlayers = Number(uptimeRows[0].maxplayers || 0);
     }
   } catch (_) {}
+
+  try {
+    const [onlineRows] = await charsPool.query(
+      "SELECT COUNT(*) AS total FROM characters WHERE online = 1"
+    );
+    onlineNow = Number(onlineRows[0]?.total || 0);
+  } catch (_) {}
+
+  if (onlineNow > maxPlayers)
+    maxPlayers = onlineNow;
 
   try {
     const [gmRows] = await charsPool.query(
