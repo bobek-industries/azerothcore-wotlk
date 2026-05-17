@@ -536,6 +536,7 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<uint32>(CONFIG_HONOR_AFTER_DUEL, "HonorPointsAfterDuel", 0);
     SetConfigValue<bool>(CONFIG_START_ALL_EXPLORED, "PlayerStart.MapsExplored", false);
     SetConfigValue<bool>(CONFIG_START_ALL_REP, "PlayerStart.AllReputation", false);
+    SetConfigValue<bool>(CONFIG_START_BAG_PER_SLOT, "PlayerStart.BagPerSlot", false);
     SetConfigValue<bool>(CONFIG_ALWAYS_MAXSKILL, "AlwaysMaxWeaponSkill", false);
     SetConfigValue<bool>(CONFIG_PVP_TOKEN_ENABLE, "PvPToken.Enable", false);
     SetConfigValue<uint32>(CONFIG_PVP_TOKEN_MAP_TYPE, "PvPToken.MapAllowType", 4);
