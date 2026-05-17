@@ -108,7 +108,7 @@ static const StarterItem PvpGear_Priest[] =
     {41859, 1}, {41874, 1}, {41854, 1}, {41864, 1}, {41869, 1}, // Mooncloth 5pc
     {42072, 1}, {42040, 1}, {42117, 1}, {41893, 1}, {41881, 1}, {41885, 1}, // Offsets (Cloth)
     {44254, 1}, // Trinket
-    {42514, 1}, {40273, 1}, // Baton of Light + Surplus Limb
+    {42353, 1}, {40273, 1}, // Gavel + Surplus Limb
 };
 static const uint32 PvpGear_Priest_Size = sizeof(PvpGear_Priest) / sizeof(StarterItem);
 
@@ -199,7 +199,7 @@ static const StarterItem PveGear_Priest[] =
 {
     {45389, 1}, {45392, 1}, {45386, 1}, {45388, 1}, {45390, 1}, // Sanctification 5pc
     {44254, 1}, {40432, 1}, // Trinkets
-    {40336, 1}, {40273, 1}, // Life and Death + Surplus Limb
+    {40395, 1}, {40273, 1}, // Torch of Holy Fire + Surplus Limb
 };
 static const uint32 PveGear_Priest_Size = sizeof(PveGear_Priest) / sizeof(StarterItem);
 
