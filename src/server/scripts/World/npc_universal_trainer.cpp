@@ -4,6 +4,10 @@
 #include "Creature.h"
 #include "ObjectMgr.h"
 #include "Trainer.h"
+#include <unordered_map>
+
+// Track original money before free training so we can restore it
+static std::unordered_map<ObjectGuid::LowType, uint32> _savedMoney;
 
 enum AllFatherGossip
 {
@@ -332,6 +336,14 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
+        // Restore original money if returning from free training
+        auto it = _savedMoney.find(player->GetGUID().GetCounter());
+        if (it != _savedMoney.end())
+        {
+            player->SetMoney(it->second);
+            _savedMoney.erase(it);
+        }
+
         AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Class Trainer", GOSSIP_SENDER_MAIN, ACTION_CLASSES);
         AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Profession Trainer", GOSSIP_SENDER_MAIN, ACTION_PROFESSIONS);
         AddGossipItemFor(player, GOSSIP_ICON_VENDOR, "PvP Starter Gear", GOSSIP_SENDER_MAIN, ACTION_PVP_GEAR);
@@ -410,8 +422,10 @@ public:
             Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(ClassTrainerEntries[idx]);
             if (trainer)
             {
+                // Save original money and give enough gold for free training
+                _savedMoney[player->GetGUID().GetCounter()] = player->GetMoney();
+                player->SetMoney(999999999);
                 trainer->SendSpells(creature, player, player->GetSession()->GetSessionDbLocaleIndex());
-                CloseGossipMenuFor(player);
             }
         }
         else if (action >= ACTION_PROF_BASE && action < ACTION_PROF_BASE + 14)
@@ -420,8 +434,10 @@ public:
             Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(ProfTrainerEntries[idx]);
             if (trainer)
             {
+                // Save original money and give enough gold for free training
+                _savedMoney[player->GetGUID().GetCounter()] = player->GetMoney();
+                player->SetMoney(999999999);
                 trainer->SendSpells(creature, player, player->GetSession()->GetSessionDbLocaleIndex());
-                CloseGossipMenuFor(player);
             }
         }
 
