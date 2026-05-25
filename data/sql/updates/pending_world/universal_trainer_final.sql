@@ -1,5 +1,5 @@
 -- Fixed SQL script for Universal Trainer NPC Setup
-DELETE FROM creature_template WHERE entry BETWEEN 1000001 AND 1000010 OR entry BETWEEN 1000101 AND 1000114 OR entry = 9999999;
+DELETE FROM creature_template WHERE entry BETWEEN 1000001 AND 1000010 OR entry BETWEEN 1000101 AND 1000114 OR entry = 9999999 OR entry = 1000115;
 INSERT INTO creature_template (entry, difficulty_entry_1, difficulty_entry_2, difficulty_entry_3, KillCredit1, KillCredit2, name, subname, IconName, gossip_menu_id, minlevel, maxlevel, exp, faction, npcflag, speed_walk, speed_run, speed_swim, speed_flight, detection_range, `rank`, dmgschool, DamageModifier, BaseAttackTime, RangeAttackTime, BaseVariance, RangeVariance, unit_class, unit_flags, unit_flags2, dynamicflags, family, type, type_flags, lootid, pickpocketloot, skinloot, PetSpellDataId, VehicleId, mingold, maxgold, AIName, MovementType, HoverHeight, HealthModifier, ManaModifier, ArmorModifier, ExperienceModifier, RacialLeader, movementId, RegenHealth, CreatureImmunitiesId, flags_extra, ScriptName, VerifiedBuild) VALUES
 (9999999, 0, 0, 0, 0, 0, 'AllFather', 'Master of All Skills', '', 0, 80, 80, 0, 35, 113, 1, 1.14286, 1, 1, 20, 1, 0, 1, 2000, 2000, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'npc_universal_trainer', 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, '', 0),
 (1000001, 0, 0, 0, 0, 0, 'Warrior Trainer', 'Class Trainer', '', 0, 1, 80, 0, 35, 48, 1, 1.14286, 1, 1, 20, 1, 0, 1, 2000, 2000, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, '', 0),
@@ -83,8 +83,9 @@ INSERT INTO creature_default_trainer (CreatureId, TrainerId) VALUES
 
 -- The AllFather NPC uses a C++ script (npc_universal_trainer) that handles all gossip
 -- interactions via OnGossipHello/OnGossipSelect, so no database gossip menus are needed.
--- The script dynamically builds the gossip menus and directly calls SendSpells for
--- the appropriate trainer, bypassing the built-in GOSSIP_OPTION_TRAINER handler.
+-- The script uses the built-in SendTrainerList for class/profession training
+-- (which shows the universal trainer filtered by class/race), and directly
+-- teaches weapon skills without a trainer UI.
 -- Clean up any stale gossip data that may have been inserted previously.
 DELETE FROM gossip_menu_option WHERE MenuID BETWEEN 50005 AND 50007;
 DELETE FROM gossip_menu WHERE MenuID BETWEEN 50005 AND 50007;
@@ -93,3 +94,10 @@ DELETE FROM npc_text WHERE ID BETWEEN 50005 AND 50007;
 -- Set AllFather's npcflag (GOSSIP=1 + TRAINER=16 + TRAINER_CLASS=32 + TRAINER_PROFESSION=64 = 113)
 -- gossip_menu_id is set to 0 since the script handles all gossip
 UPDATE creature_template SET gossip_menu_id = 0, npcflag = 113 WHERE entry = 9999999;
+
+-- Clean up the custom weapon trainer entry (1000115) - no longer needed.
+-- Weapon skills are now taught directly by the C++ script.
+DELETE FROM creature_template WHERE entry = 1000115;
+DELETE FROM trainer WHERE Id = 1000115;
+DELETE FROM trainer_spell WHERE TrainerId = 1000115;
+DELETE FROM creature_default_trainer WHERE CreatureID = 1000115;

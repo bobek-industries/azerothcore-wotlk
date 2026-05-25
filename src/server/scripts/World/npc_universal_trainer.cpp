@@ -2,12 +2,6 @@
 #include "ScriptedGossip.h"
 #include "Player.h"
 #include "Creature.h"
-#include "ObjectMgr.h"
-#include "Trainer.h"
-#include <unordered_map>
-
-// Track original money before free training so we can restore it
-static std::unordered_map<ObjectGuid::LowType, uint32> _savedMoney;
 
 enum AllFatherGossip
 {
@@ -17,42 +11,36 @@ enum AllFatherGossip
     ACTION_PVE_GEAR     = 1004,
     ACTION_UTILITIES    = 1005,
     ACTION_BACK         = 1006,
+    ACTION_WEAPON_TRAINING = 1007,
     ACTION_CLASS_BASE   = 1010,
     ACTION_PROF_BASE    = 1100,
 };
 
-// Virtual creature entries mapped to real trainers via creature_default_trainer
-static const uint32 ClassTrainerEntries[] =
+// Weapon proficiency spells and their corresponding skill line IDs
+struct WeaponSkillEntry
 {
-    1000001, // Warrior
-    1000002, // Paladin
-    1000003, // Hunter
-    1000004, // Rogue
-    1000005, // Priest
-    1000006, // Death Knight
-    1000007, // Shaman
-    1000008, // Mage
-    1000009, // Warlock
-    1000010, // Druid
+    uint32 spellId;    // Proficiency spell that unlocks the weapon type
+    uint32 skillLineId; // Skill line ID for SetSkill
 };
 
-static const uint32 ProfTrainerEntries[] =
+static const WeaponSkillEntry WeaponSkillEntries[] =
 {
-    1000101, // Alchemy
-    1000102, // Blacksmithing
-    1000103, // Cooking
-    1000104, // Enchanting
-    1000105, // Engineering
-    1000106, // First Aid
-    1000107, // Fishing
-    1000108, // Herbalism
-    1000109, // Inscription
-    1000110, // Jewelcrafting
-    1000111, // Leatherworking
-    1000112, // Mining
-    1000113, // Skinning
-    1000114, // Tailoring
+    {196,    43},   // One-Handed Swords  -> SKILL_SWORDS
+    {197,    54},   // One-Handed Maces   -> SKILL_MACES
+    {198,    44},   // One-Handed Axes    -> SKILL_AXES
+    {199,    46},   // Guns               -> SKILL_GUNS
+    {200,    55},   // Two-Handed Swords  -> SKILL_2H_SWORDS
+    {201,    160},  // Two-Handed Maces   -> SKILL_2H_MACES
+    {202,    172},  // Two-Handed Axes    -> SKILL_2H_AXES
+    {227,    136},  // Staves             -> SKILL_STAVES
+    {264,    45},   // Bows               -> SKILL_BOWS
+    {266,    226},  // Crossbows          -> SKILL_CROSSBOWS
+    {1180,   173},  // Daggers            -> SKILL_DAGGERS
+    {2567,   176},  // Thrown             -> SKILL_THROWN
+    {5011,   228},  // Wands              -> SKILL_WANDS
+    {15590,  473},  // Fist Weapons       -> SKILL_FIST_WEAPONS
 };
+static const uint32 WeaponSkillEntries_Size = sizeof(WeaponSkillEntries) / sizeof(WeaponSkillEntry);
 
 // ============================================================
 // Starter Gear Data
@@ -336,16 +324,9 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
-        // Restore original money if returning from free training
-        auto it = _savedMoney.find(player->GetGUID().GetCounter());
-        if (it != _savedMoney.end())
-        {
-            player->SetMoney(it->second);
-            _savedMoney.erase(it);
-        }
-
         AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Class Trainer", GOSSIP_SENDER_MAIN, ACTION_CLASSES);
         AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Profession Trainer", GOSSIP_SENDER_MAIN, ACTION_PROFESSIONS);
+        AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Weapon Training", GOSSIP_SENDER_MAIN, ACTION_WEAPON_TRAINING);
         AddGossipItemFor(player, GOSSIP_ICON_VENDOR, "PvP Starter Gear", GOSSIP_SENDER_MAIN, ACTION_PVP_GEAR);
         AddGossipItemFor(player, GOSSIP_ICON_VENDOR, "PvE Starter Gear", GOSSIP_SENDER_MAIN, ACTION_PVE_GEAR);
         AddGossipItemFor(player, GOSSIP_ICON_VENDOR, "Utilities (Bags, Gems, Consumables, Mounts)", GOSSIP_SENDER_MAIN, ACTION_UTILITIES);
@@ -391,6 +372,21 @@ public:
             AddGossipItemFor(player, GOSSIP_ICON_TALK, "Back", GOSSIP_SENDER_MAIN, ACTION_BACK);
             SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, creature->GetGUID());
         }
+        else if (action == ACTION_WEAPON_TRAINING)
+        {
+            // Teach all weapon proficiencies and set skills to max for the player's level
+            uint16 maxSkill = player->GetMaxSkillValueForLevel();
+            for (uint32 i = 0; i < WeaponSkillEntries_Size; ++i)
+            {
+                if (!player->HasSpell(WeaponSkillEntries[i].spellId))
+                    player->learnSpell(WeaponSkillEntries[i].spellId, false);
+
+                // Set the weapon skill to max for the player's level
+                if (player->HasSkill(WeaponSkillEntries[i].skillLineId))
+                    player->SetSkill(WeaponSkillEntries[i].skillLineId, player->GetSkillStep(WeaponSkillEntries[i].skillLineId), maxSkill, maxSkill);
+            }
+            CloseGossipMenuFor(player);
+        }
         else if (action == ACTION_PVP_GEAR)
         {
             GivePvpGear(player);
@@ -418,27 +414,15 @@ public:
         }
         else if (action >= ACTION_CLASS_BASE && action < ACTION_CLASS_BASE + 10)
         {
-            uint32 idx = action - ACTION_CLASS_BASE;
-            Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(ClassTrainerEntries[idx]);
-            if (trainer)
-            {
-                // Save original money and give enough gold for free training
-                _savedMoney[player->GetGUID().GetCounter()] = player->GetMoney();
-                player->SetMoney(999999999);
-                trainer->SendSpells(creature, player, player->GetSession()->GetSessionDbLocaleIndex());
-            }
+            // Use the built-in trainer handler which properly transitions the client UI
+            // The AllFather's trainer (9999998) has all spells; IsSpellFitByClassAndRace
+            // filters them to only show what the player's class/race can learn.
+            player->GetSession()->SendTrainerList(creature);
         }
         else if (action >= ACTION_PROF_BASE && action < ACTION_PROF_BASE + 14)
         {
-            uint32 idx = action - ACTION_PROF_BASE;
-            Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(ProfTrainerEntries[idx]);
-            if (trainer)
-            {
-                // Save original money and give enough gold for free training
-                _savedMoney[player->GetGUID().GetCounter()] = player->GetMoney();
-                player->SetMoney(999999999);
-                trainer->SendSpells(creature, player, player->GetSession()->GetSessionDbLocaleIndex());
-            }
+            // Same as class trainers - use the built-in handler
+            player->GetSession()->SendTrainerList(creature);
         }
 
         return true;
